@@ -97,7 +97,7 @@ let config = TellConfig::production("a1b2c3d4e5f60718293a4b5c6d7e8f90").unwrap()
 // Development — localhost:50000, batch=10, flush=2s
 let config = TellConfig::development("a1b2c3d4e5f60718293a4b5c6d7e8f90").unwrap();
 
-// Custom — see examples/config.rs for all builder options
+// Custom — see crates/tell/examples/config.rs for all builder options
 let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
     .endpoint("collect.internal:50000")
     .on_error(|e| eprintln!("[Tell] {e}"))

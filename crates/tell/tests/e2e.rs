@@ -2,23 +2,19 @@
 //!
 //! Start your Tell server, then:
 //!
-//!   cargo run -p tell --example e2e
-//!
-//! Override endpoint:
-//!
-//!   TELL_ENDPOINT=collect.tell.app:50000 cargo run -p tell --example e2e
-//!
-//! Then verify on the collector that all events arrived.
+//!   cargo test -p tell --test e2e -- --ignored --nocapture
 
 use serde_json::json;
 use tell::{props, Props, Events, Tell, TellConfig};
 
 const API_KEY: &str = "4cc3542f199d280d29eace8497ed062f";
 const USER: &str = "e2e_user_rust";
+const ENDPOINT: &str = "localhost:50000";
 
-#[tokio::main]
-async fn main() {
-    let endpoint = std::env::var("TELL_ENDPOINT").unwrap_or_else(|_| "localhost:50000".into());
+#[ignore]
+#[tokio::test]
+async fn smoke() {
+    let endpoint = ENDPOINT;
 
     println!();
     println!("  Tell Rust SDK — E2E smoke test");
@@ -27,7 +23,7 @@ async fn main() {
 
     let client = Tell::new(
         TellConfig::builder(API_KEY)
-            .endpoint(&endpoint)
+            .endpoint(endpoint)
             .batch_size(10)
             .on_error(|e| eprintln!("  !! {e}"))
             .build()

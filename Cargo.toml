@@ -7,7 +7,7 @@ exclude = ["compare"]
 version = "0.1.1"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/anthropics/tell"
+repository = "https://github.com/tell-rs/tell-rs"
 homepage = "https://tell.rs"
 readme = "README.md"
 
