@@ -9,7 +9,7 @@ homepage.workspace = true
 readme = "../../README.md"
 keywords = ["analytics", "logging", "telemetry", "events", "observability"]
 categories = ["development-tools::debugging", "network-programming"]
-exclude = ["examples/", "tests/"]
+exclude = ["tests/"]
 
 [dependencies]
 tell-encoding = { workspace = true }
