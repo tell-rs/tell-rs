@@ -1,0 +1,25 @@
+[package]
+name = "tell"
+description = "Tell analytics SDK for Rust — events and structured logging"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["analytics", "logging", "telemetry", "events", "observability"]
+categories = ["development-tools::debugging", "network-programming"]
+exclude = ["examples/", "tests/"]
+
+[dependencies]
+tell-encoding = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+quanta = { workspace = true }
+crossfire = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util", "io-util"] }

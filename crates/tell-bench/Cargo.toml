@@ -1,0 +1,34 @@
+[package]
+name = "tell-bench"
+description = "Benchmark suite for the Tell Rust SDK"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+tell = { path = "../tell" }
+tell-encoding = { path = "../tell-encoding" }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
+
+[dev-dependencies]
+criterion = { workspace = true }
+serde = { workspace = true }
+flashlog = { path = "../../compare/flashlog", features = ["max-level-trace"] }
+tempfile = "3"
+
+[[bench]]
+name = "encoding"
+harness = false
+
+[[bench]]
+name = "hot_path"
+harness = false
+
+[[bench]]
+name = "pipeline"
+harness = false
+
+[[bench]]
+name = "comparison"
+harness = false

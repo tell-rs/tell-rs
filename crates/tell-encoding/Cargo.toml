@@ -1,0 +1,13 @@
+[package]
+name = "tell-encoding"
+description = "FlatBuffer encoding for the Tell analytics protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["flatbuffers", "encoding", "telemetry", "protocol"]
+categories = ["encoding"]
+exclude = ["tests/"]
+
+[dependencies]

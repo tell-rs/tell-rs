@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = ["crates/tell-encoding", "crates/tell", "crates/tell-bench"]
+exclude = ["compare"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/anthropics/tell"
+homepage = "https://tell.rs"
+readme = "README.md"
+
+[workspace.dependencies]
+tell-encoding = { version = "0.1.0", path = "crates/tell-encoding" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "net", "sync", "time", "macros", "io-util"] }
+quanta = "0.12"
+crossfire = { version = "3.0.2", features = ["tokio"] }
+criterion = { version = "0.5", features = ["async_tokio"] }
