@@ -8,9 +8,7 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
 </p>
 
-Rust SDK for Tell — product analytics and structured logging.
-
-**80 ns. 10M events/sec. The fastest production analytics SDK.**
+Rust SDK for Tell — product analytics and structured logging, [1,000× faster](#performance) than PostHog and Mixpanel.
 
 - **80 ns per call.** Serializes, encodes, and enqueues. Your thread moves on.
 - **10M events/sec delivered.** Batched, encoded, sent over the wire.
@@ -77,6 +75,8 @@ Each event is 200 bytes on the wire — device ID, session ID, timestamp, event 
 |-----------|-----------------|---------------|
 | `track` | 84 ns | 52 ns |
 | `log` | 76 ns | 50 ns |
+
+PostHog and Mixpanel send an HTTP request on every track call — ~85 µs on localhost, milliseconds in production. Tell enqueues a wire-ready event in 84 ns — **1,000× less overhead**. Your thread never touches the network.
 
 For comparison, [FlashLog](https://github.com/JunbeomL22/flashlog) achieves ~16 ns by copying raw bytes into a ring buffer — serialization and I/O happen later. Tell pays upfront for a wire-ready event.
 
