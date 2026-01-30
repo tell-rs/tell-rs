@@ -8,12 +8,14 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
 </p>
 
-Analytics SDK for Rust. Events and structured logging over TCP + FlatBuffers.
+Rust SDK for Tell — product analytics and structured logging.
 
-- **80 ns per call.** Serializes, encodes to FlatBuffers, and enqueues for TCP delivery. Your thread moves on.
-- **10M events/sec delivered.** Full pipeline — batched, encoded, sent over TCP.
-- **Fire & forget.** Synchronous API, async background worker. Never blocks on I/O.
-- **Thread-safe.** `Clone + Send + Sync`, share across threads cheaply via `Arc`.
+**80 ns. 10M events/sec. The fastest production analytics SDK.**
+
+- **80 ns per call.** Serializes, encodes, and enqueues. Your thread moves on.
+- **10M events/sec delivered.** Batched, encoded, sent over the wire.
+- **Fire & forget.** Synchronous API, async background worker. Zero I/O blocking.
+- **Thread-safe.** `Clone + Send + Sync`. Share across threads via `Arc`.
 
 ## Installation
 
@@ -59,15 +61,24 @@ async fn main() {
 
 ## Performance
 
-**Delivery throughput** — 10M events enqueued, batched, encoded, and sent over TCP:
+**Delivery throughput** — batched, encoded, and sent over TCP (Apple M4 Pro):
 
-| Batch size | ~200B payload | No properties |
-|------------|---------------|---------------|
+| Batch size | With payload | No payload |
+|------------|--------------|------------|
 | 10 | 7.8M/s | 14.5M/s |
 | 100 | 8.3M/s | 14.3M/s |
 | 500 | **9.8M/s** | **18.2M/s** |
 
-Each `track()` call takes **80 ns** on the caller thread — that includes JSON serialization, FlatBuffer encoding, and channel send. The event is wire-ready for TCP delivery before your function returns. [FlashLog](https://github.com/JunbeomL22/flashlog) achieves ~16 ns by deferring all serialization to a background worker and writing to local disk only — a different design point.
+Each event is 200 bytes on the wire — device ID, session ID, timestamp, event name, and user properties, FlatBuffer-encoded with API key and batch headers.
+
+**Caller latency** — serialize, encode, and enqueue. Wire-ready before your function returns:
+
+| Operation | With properties | No properties |
+|-----------|-----------------|---------------|
+| `track` | 84 ns | 52 ns |
+| `log` | 76 ns | 50 ns |
+
+For comparison, [FlashLog](https://github.com/JunbeomL22/flashlog) achieves ~16 ns by copying raw bytes into a ring buffer — serialization and I/O happen later. Tell pays upfront for a wire-ready event.
 
 ```bash
 cargo bench -p tell-bench --bench hot_path             # caller latency
