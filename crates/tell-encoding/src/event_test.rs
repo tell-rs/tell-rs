@@ -9,6 +9,7 @@ fn encode_event_with_all_fields() {
     let bytes = encode_event(&EventParams {
         event_type: EventType::Track,
         timestamp: 1706000000000,
+        service: Some("website"),
         device_id: Some(&device_id),
         session_id: Some(&session_id),
         event_name: Some("Page Viewed"),
@@ -45,6 +46,11 @@ fn encode_event_with_all_fields() {
     let found = bytes.windows(UUID_LENGTH).any(|w| w == session_id);
     assert!(found, "session_id not found");
 
+    // service should appear
+    let svc = b"website";
+    let found = bytes.windows(svc.len()).any(|w| w == svc.as_slice());
+    assert!(found, "service not found");
+
     // event_name should appear
     let name = b"Page Viewed";
     let found = bytes.windows(name.len()).any(|w| w == name.as_slice());
@@ -60,6 +66,7 @@ fn encode_event_minimal() {
     let bytes = encode_event(&EventParams {
         event_type: EventType::Identify,
         timestamp: 0,
+        service: None,
         device_id: None,
         session_id: None,
         event_name: None,
@@ -72,11 +79,71 @@ fn encode_event_minimal() {
 }
 
 #[test]
+fn encode_event_with_service() {
+    let bytes = encode_event(&EventParams {
+        event_type: EventType::Track,
+        timestamp: 1000,
+        service: Some("my-backend"),
+        device_id: None,
+        session_id: None,
+        event_name: Some("Click"),
+        payload: None,
+    });
+
+    let root_offset = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+    assert!(root_offset < bytes.len());
+
+    // Service string should appear in the buffer
+    let svc = b"my-backend";
+    let found = bytes.windows(svc.len()).any(|w| w == svc.as_slice());
+    assert!(found, "service string not found in encoded event");
+
+    // VTable field 2 (service) should point to table+32
+    let vtable_start = root_offset - i32::from_le_bytes([
+        bytes[root_offset], bytes[root_offset + 1],
+        bytes[root_offset + 2], bytes[root_offset + 3],
+    ]) as usize;
+    let field2 = u16::from_le_bytes([bytes[vtable_start + 8], bytes[vtable_start + 9]]);
+    assert_eq!(field2, 32, "vtable field 2 (service) should point to offset 32");
+
+    // service offset at table+32 should be non-zero (relative offset to string)
+    let service_off = u32::from_le_bytes([
+        bytes[root_offset + 32], bytes[root_offset + 33],
+        bytes[root_offset + 34], bytes[root_offset + 35],
+    ]);
+    assert_ne!(service_off, 0, "service offset should be non-zero when service is present");
+}
+
+#[test]
+fn encode_event_without_service() {
+    let bytes = encode_event(&EventParams {
+        event_type: EventType::Track,
+        timestamp: 1000,
+        service: None,
+        device_id: None,
+        session_id: None,
+        event_name: None,
+        payload: None,
+    });
+
+    let root_offset = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+
+    // VTable field 2 (service) should be 0 (absent)
+    let vtable_start = root_offset - i32::from_le_bytes([
+        bytes[root_offset], bytes[root_offset + 1],
+        bytes[root_offset + 2], bytes[root_offset + 3],
+    ]) as usize;
+    let field2 = u16::from_le_bytes([bytes[vtable_start + 8], bytes[vtable_start + 9]]);
+    assert_eq!(field2, 0, "vtable field 2 (service) should be 0 when absent");
+}
+
+#[test]
 fn encode_event_data_single() {
     let device_id = [0xAA; UUID_LENGTH];
     let event = encode_event(&EventParams {
         event_type: EventType::Track,
         timestamp: 1000,
+        service: None,
         device_id: Some(&device_id),
         session_id: None,
         event_name: Some("Click"),
@@ -102,6 +169,7 @@ fn encode_event_data_multiple() {
             encode_event(&EventParams {
                 event_type: EventType::Track,
                 timestamp: 1000 + i,
+                service: None,
                 device_id: Some(&device_id),
                 session_id: None,
                 event_name: Some(&format!("Event{i}")),
@@ -136,6 +204,7 @@ fn encode_event_data_into_matches_encode_event_data() {
         .map(|i| EventParams {
             event_type: EventType::Track,
             timestamp: 1000 + i as u64,
+            service: None,
             device_id: Some(&device_ids[i]),
             session_id: Some(&session_ids[i]),
             event_name: Some(&names[i]),
@@ -182,6 +251,7 @@ fn encode_event_data_into_reuses_buffer() {
     let params = [EventParams {
         event_type: EventType::Track,
         timestamp: 100,
+        service: None,
         device_id: None,
         session_id: None,
         event_name: Some("First"),
@@ -195,6 +265,7 @@ fn encode_event_data_into_reuses_buffer() {
     let params2 = [EventParams {
         event_type: EventType::Identify,
         timestamp: 200,
+        service: None,
         device_id: None,
         session_id: None,
         event_name: Some("Second"),

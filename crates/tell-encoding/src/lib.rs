@@ -107,6 +107,7 @@ impl LogLevel {
 pub struct EventParams<'a> {
     pub event_type: EventType,
     pub timestamp: u64,
+    pub service: Option<&'a str>,
     pub device_id: Option<&'a [u8; UUID_LENGTH]>,
     pub session_id: Option<&'a [u8; UUID_LENGTH]>,
     pub event_name: Option<&'a str>,

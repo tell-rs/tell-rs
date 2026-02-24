@@ -99,6 +99,7 @@ let config = TellConfig::development("a1b2c3d4e5f60718293a4b5c6d7e8f90").unwrap(
 
 // Custom — see crates/tell/examples/config.rs for all builder options
 let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+    .service("my-backend")                // stamped on every event and log
     .endpoint("collect.internal:50000")
     .on_error(|e| eprintln!("[Tell] {e}"))
     .build()

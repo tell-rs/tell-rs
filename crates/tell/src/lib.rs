@@ -13,7 +13,7 @@
 //!     ).unwrap();
 //!
 //!     client.track("user_123", "Page Viewed", props! { "url" => "/home" });
-//!     client.log_info("Request handled", Some("api"), props! { "status" => 200 });
+//!     client.log_info("Request handled", Some("http"), props! { "status" => 200 });
 //!
 //!     client.close().await.ok();
 //! }

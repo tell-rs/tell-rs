@@ -55,6 +55,7 @@ async fn worker_loop(config: TellConfig, rx: AsyncRx<crossfire::mpsc::Array<Work
     let batch_size = config.batch_size;
     let max_retries = config.max_retries;
     let api_key = config.api_key_bytes;
+    let service = config.service.clone();
     let on_error = config.on_error.clone();
 
     let mut interval = tokio::time::interval(flush_interval);
@@ -69,20 +70,20 @@ async fn worker_loop(config: TellConfig, rx: AsyncRx<crossfire::mpsc::Array<Work
                     Ok(WorkerMessage::Event(event)) => {
                         event_queue.push(event);
                         if event_queue.len() >= batch_size {
-                            flush_events(&mut transport, &api_key, &mut event_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
+                            flush_events(&mut transport, &api_key, &service, &mut event_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
                         }
                     }
                     Ok(WorkerMessage::Log(log)) => {
                         log_queue.push(log);
                         if log_queue.len() >= batch_size {
-                            flush_logs(&mut transport, &api_key, &mut log_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
+                            flush_logs(&mut transport, &api_key, &service, &mut log_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
                         }
                     }
                     Ok(WorkerMessage::Flush(ack)) => {
                         // Drain any remaining messages from the channel first
                         let extra_acks = drain_channel(&rx, &mut event_queue, &mut log_queue);
-                        flush_events(&mut transport, &api_key, &mut event_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
-                        flush_logs(&mut transport, &api_key, &mut log_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
+                        flush_events(&mut transport, &api_key, &service, &mut event_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
+                        flush_logs(&mut transport, &api_key, &service, &mut log_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
                         let _ = ack.send(());
                         for a in extra_acks {
                             let _ = a.send(());
@@ -90,8 +91,8 @@ async fn worker_loop(config: TellConfig, rx: AsyncRx<crossfire::mpsc::Array<Work
                     }
                     Ok(WorkerMessage::Close(ack)) => {
                         let extra_acks = drain_channel(&rx, &mut event_queue, &mut log_queue);
-                        flush_events(&mut transport, &api_key, &mut event_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
-                        flush_logs(&mut transport, &api_key, &mut log_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
+                        flush_events(&mut transport, &api_key, &service, &mut event_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
+                        flush_logs(&mut transport, &api_key, &service, &mut log_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
                         transport.close().await;
                         let _ = ack.send(());
                         for a in extra_acks {
@@ -101,8 +102,8 @@ async fn worker_loop(config: TellConfig, rx: AsyncRx<crossfire::mpsc::Array<Work
                     }
                     Err(_) => {
                         // Channel closed — flush remaining and exit
-                        flush_events(&mut transport, &api_key, &mut event_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
-                        flush_logs(&mut transport, &api_key, &mut log_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
+                        flush_events(&mut transport, &api_key, &service, &mut event_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
+                        flush_logs(&mut transport, &api_key, &service, &mut log_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
                         transport.close().await;
                         return;
                     }
@@ -110,10 +111,10 @@ async fn worker_loop(config: TellConfig, rx: AsyncRx<crossfire::mpsc::Array<Work
             }
             _ = interval.tick() => {
                 if !event_queue.is_empty() {
-                    flush_events(&mut transport, &api_key, &mut event_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
+                    flush_events(&mut transport, &api_key, &service, &mut event_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
                 }
                 if !log_queue.is_empty() {
-                    flush_logs(&mut transport, &api_key, &mut log_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
+                    flush_logs(&mut transport, &api_key, &service, &mut log_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
                 }
             }
         }
@@ -143,6 +144,7 @@ fn drain_channel(
 async fn flush_events(
     transport: &mut TcpTransport,
     api_key: &[u8; 16],
+    service: &Option<String>,
     queue: &mut Vec<QueuedEvent>,
     max_retries: u32,
     on_error: &Option<std::sync::Arc<dyn Fn(TellError) + Send + Sync>>,
@@ -161,6 +163,7 @@ async fn flush_events(
         .map(|e| EventParams {
             event_type: e.event_type,
             timestamp: e.timestamp,
+            service: service.as_deref(),
             device_id: Some(&e.device_id),
             session_id: Some(&e.session_id),
             event_name: e.event_name.as_deref(),
@@ -187,6 +190,7 @@ async fn flush_events(
 async fn flush_logs(
     transport: &mut TcpTransport,
     api_key: &[u8; 16],
+    service: &Option<String>,
     queue: &mut Vec<QueuedLog>,
     max_retries: u32,
     on_error: &Option<std::sync::Arc<dyn Fn(TellError) + Send + Sync>>,
@@ -200,6 +204,8 @@ async fn flush_logs(
     let logs: Vec<QueuedLog> = std::mem::take(queue);
 
     // Build params borrowing from the queued logs
+    // service  → config-level app name (same as events)
+    // component → per-log module label, mapped to wire `source` field
     let params: Vec<LogEntryParams<'_>> = logs
         .iter()
         .map(|l| LogEntryParams {
@@ -207,8 +213,8 @@ async fn flush_logs(
             session_id: Some(&l.session_id),
             level: l.level,
             timestamp: l.timestamp,
-            source: l.source.as_deref(),
-            service: Some(&l.service),
+            source: l.component.as_deref(),
+            service: service.as_deref(),
             payload: l.payload.as_deref(),
         })
         .collect();

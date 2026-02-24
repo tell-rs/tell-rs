@@ -7,7 +7,12 @@ use tell::{props, Tell, TellConfig};
 #[tokio::main]
 async fn main() {
     let client = Tell::new(
-        TellConfig::development("a1b2c3d4e5f60718293a4b5c6d7e8f90").unwrap(),
+        TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+            .endpoint("localhost:50000")
+            .service("my-app")
+            .batch_size(10)
+            .build()
+            .unwrap(),
     )
     .unwrap();
 

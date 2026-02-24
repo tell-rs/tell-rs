@@ -15,6 +15,8 @@ pub const DEV_ENDPOINT: &str = "localhost:50000";
 pub struct TellConfig {
     /// Decoded 16-byte API key.
     pub(crate) api_key_bytes: [u8; 16],
+    /// Service name stamped on every event and log.
+    pub(crate) service: Option<String>,
     /// Collector host:port.
     pub(crate) endpoint: String,
     /// Max events per batch before flush.
@@ -47,6 +49,7 @@ impl std::fmt::Debug for TellConfig {
 /// Builder for constructing a `TellConfig`.
 pub struct TellConfigBuilder {
     api_key: String,
+    service: Option<String>,
     endpoint: Option<String>,
     batch_size: Option<usize>,
     flush_interval: Option<Duration>,
@@ -61,6 +64,7 @@ impl TellConfigBuilder {
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
             api_key: api_key.into(),
+            service: None,
             endpoint: None,
             batch_size: None,
             flush_interval: None,
@@ -69,6 +73,12 @@ impl TellConfigBuilder {
             network_timeout: None,
             on_error: None,
         }
+    }
+
+    /// Set the service name stamped on every event and log. No auto-detect for server SDKs.
+    pub fn service(mut self, name: impl Into<String>) -> Self {
+        self.service = Some(name.into());
+        self
     }
 
     /// Set the collector endpoint (`host:port`). Default: `collect.tell.app:50000`.
@@ -117,8 +127,15 @@ impl TellConfigBuilder {
     pub fn build(self) -> Result<TellConfig, TellError> {
         let api_key_bytes = validate_and_decode_api_key(&self.api_key)?;
 
+        if let Some(ref s) = self.service {
+            if s.is_empty() {
+                return Err(TellError::validation("service", "must not be empty"));
+            }
+        }
+
         Ok(TellConfig {
             api_key_bytes,
+            service: self.service,
             endpoint: self.endpoint.unwrap_or_else(|| DEFAULT_ENDPOINT.to_string()),
             batch_size: self.batch_size.unwrap_or(100),
             flush_interval: self.flush_interval.unwrap_or(Duration::from_secs(10)),

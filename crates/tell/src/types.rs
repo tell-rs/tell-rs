@@ -18,7 +18,6 @@ pub(crate) struct QueuedLog {
     pub level: LogLevel,
     pub timestamp: u64,
     pub session_id: [u8; 16],
-    pub source: Option<String>,
-    pub service: String,
+    pub component: Option<String>,
     pub payload: Option<Vec<u8>>,
 }

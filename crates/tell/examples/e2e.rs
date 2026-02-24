@@ -28,6 +28,7 @@ async fn main() {
     let client = Tell::new(
         TellConfig::builder(API_KEY)
             .endpoint(&endpoint)
+            .service("e2e-test")
             .batch_size(10)
             .on_error(|e| eprintln!("  !! {e}"))
             .build()

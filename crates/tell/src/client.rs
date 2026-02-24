@@ -397,11 +397,15 @@ impl Tell {
     // --- Logging ---
 
     /// Send a structured log entry.
+    ///
+    /// `component` is an optional label for the module or subsystem that produced
+    /// the log (e.g. `"auth"`, `"cache"`, `"db"`). The app-level `service` name
+    /// is taken from [`TellConfig`] and stamped automatically.
     pub fn log(
         &self,
         level: LogLevel,
         message: &str,
-        service: Option<&str>,
+        component: Option<&str>,
         data: impl IntoPayload,
     ) {
         if let Err(e) = validate_log_message(message) {
@@ -416,55 +420,54 @@ impl Tell {
             level,
             timestamp: now_ms(),
             session_id: self.read_session_id(),
-            source: None,
-            service: service.unwrap_or("app").to_string(),
+            component: component.map(|s| s.to_string()),
             payload: Some(payload),
         }));
     }
 
     /// Log at **Emergency** level (RFC 5424 severity 0). System is unusable.
-    pub fn log_emergency(&self, message: &str, service: Option<&str>, data: impl IntoPayload) {
-        self.log(LogLevel::Emergency, message, service, data);
+    pub fn log_emergency(&self, message: &str, component: Option<&str>, data: impl IntoPayload) {
+        self.log(LogLevel::Emergency, message, component, data);
     }
 
     /// Log at **Alert** level (RFC 5424 severity 1). Immediate action required.
-    pub fn log_alert(&self, message: &str, service: Option<&str>, data: impl IntoPayload) {
-        self.log(LogLevel::Alert, message, service, data);
+    pub fn log_alert(&self, message: &str, component: Option<&str>, data: impl IntoPayload) {
+        self.log(LogLevel::Alert, message, component, data);
     }
 
     /// Log at **Critical** level (RFC 5424 severity 2). Critical failure.
-    pub fn log_critical(&self, message: &str, service: Option<&str>, data: impl IntoPayload) {
-        self.log(LogLevel::Critical, message, service, data);
+    pub fn log_critical(&self, message: &str, component: Option<&str>, data: impl IntoPayload) {
+        self.log(LogLevel::Critical, message, component, data);
     }
 
     /// Log at **Error** level (RFC 5424 severity 3). Runtime error.
-    pub fn log_error(&self, message: &str, service: Option<&str>, data: impl IntoPayload) {
-        self.log(LogLevel::Error, message, service, data);
+    pub fn log_error(&self, message: &str, component: Option<&str>, data: impl IntoPayload) {
+        self.log(LogLevel::Error, message, component, data);
     }
 
     /// Log at **Warning** level (RFC 5424 severity 4). Potential issue.
-    pub fn log_warning(&self, message: &str, service: Option<&str>, data: impl IntoPayload) {
-        self.log(LogLevel::Warning, message, service, data);
+    pub fn log_warning(&self, message: &str, component: Option<&str>, data: impl IntoPayload) {
+        self.log(LogLevel::Warning, message, component, data);
     }
 
     /// Log at **Notice** level (RFC 5424 severity 5). Normal but significant.
-    pub fn log_notice(&self, message: &str, service: Option<&str>, data: impl IntoPayload) {
-        self.log(LogLevel::Notice, message, service, data);
+    pub fn log_notice(&self, message: &str, component: Option<&str>, data: impl IntoPayload) {
+        self.log(LogLevel::Notice, message, component, data);
     }
 
     /// Log at **Info** level (RFC 5424 severity 6). Informational.
-    pub fn log_info(&self, message: &str, service: Option<&str>, data: impl IntoPayload) {
-        self.log(LogLevel::Info, message, service, data);
+    pub fn log_info(&self, message: &str, component: Option<&str>, data: impl IntoPayload) {
+        self.log(LogLevel::Info, message, component, data);
     }
 
     /// Log at **Debug** level (RFC 5424 severity 7). Debug-level detail.
-    pub fn log_debug(&self, message: &str, service: Option<&str>, data: impl IntoPayload) {
-        self.log(LogLevel::Debug, message, service, data);
+    pub fn log_debug(&self, message: &str, component: Option<&str>, data: impl IntoPayload) {
+        self.log(LogLevel::Debug, message, component, data);
     }
 
     /// Log at **Trace** level (RFC 5424 severity 8). Finest-grained detail.
-    pub fn log_trace(&self, message: &str, service: Option<&str>, data: impl IntoPayload) {
-        self.log(LogLevel::Trace, message, service, data);
+    pub fn log_trace(&self, message: &str, component: Option<&str>, data: impl IntoPayload) {
+        self.log(LogLevel::Trace, message, component, data);
     }
 
     // --- Lifecycle ---

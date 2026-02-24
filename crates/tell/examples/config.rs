@@ -9,6 +9,7 @@ use tell::{Tell, TellConfig};
 async fn main() {
     let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
         .endpoint("collect.tell.rs:50000")          // default: collect.tell.rs:50000
+        .service("my-api")                           // app-level service name for filtering
         .batch_size(100)                             // default: 100 events per batch
         .flush_interval(Duration::from_secs(10))     // default: 10s between flushes
         .max_retries(3)                              // default: 3 retry attempts

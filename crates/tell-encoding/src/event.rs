@@ -6,36 +6,40 @@ use crate::{EventParams, UUID_LENGTH};
 /// Event table fields:
 /// - field 0: event_type `u8`
 /// - field 1: timestamp `u64`
-/// - field 2: device_id `[ubyte]`
-/// - field 3: session_id `[ubyte]`
-/// - field 4: event_name `string`
-/// - field 5: payload `[ubyte]`
+/// - field 2: service `string` (not sent by SDKs)
+/// - field 3: device_id `[ubyte]`
+/// - field 4: session_id `[ubyte]`
+/// - field 5: event_name `string`
+/// - field 6: payload `[ubyte]`
 pub fn encode_event(params: &EventParams<'_>) -> Vec<u8> {
     let has_device_id = params.device_id.is_some();
     let has_session_id = params.session_id.is_some();
+    let has_service = params.service.is_some();
     let has_event_name = params.event_name.is_some();
     let has_payload = params.payload.is_some();
 
-    // VTable: size(u16) + table_size(u16) + 6 field slots = 16 bytes
-    let vtable_size: u16 = 4 + 6 * 2;
+    // VTable: size(u16) + table_size(u16) + 7 field slots = 18 bytes (+ 2 pad)
+    let vtable_size: u16 = 4 + 7 * 2;
 
     // Fixed table layout (after soffset):
-    // +4: device_id offset (u32)
-    // +8: session_id offset (u32)
+    // +4:  device_id offset (u32)
+    // +8:  session_id offset (u32)
     // +12: event_name offset (u32)
     // +16: payload offset (u32)
     // +20: timestamp (u64)
     // +28: event_type (u8)
     // +29-31: padding (3 bytes)
-    let table_size: u16 = 4 + 28;
+    // +32: service offset (u32)
+    let table_size: u16 = 4 + 32;
 
     let device_id_size = if has_device_id { 4 + UUID_LENGTH } else { 0 };
     let session_id_size = if has_session_id { 4 + UUID_LENGTH } else { 0 };
+    let service_size = params.service.map(|s| 4 + s.len() + 1).unwrap_or(0);
     let event_name_size = params.event_name.map(|s| 4 + s.len() + 1).unwrap_or(0);
     let payload_size = params.payload.map(|p| 4 + p.len()).unwrap_or(0);
 
     let estimated = 4 + vtable_size as usize + table_size as usize
-        + device_id_size + session_id_size + event_name_size + payload_size + 16;
+        + device_id_size + session_id_size + service_size + event_name_size + payload_size + 16;
     let mut buf = Vec::with_capacity(estimated);
 
     // Root offset placeholder
@@ -49,10 +53,12 @@ pub fn encode_event(params: &EventParams<'_>) -> Vec<u8> {
     // Field offsets
     write_u16(&mut buf, 28);                                                // field 0: event_type at +28
     write_u16(&mut buf, 20);                                                // field 1: timestamp at +20
-    write_u16(&mut buf, if has_device_id { 4 } else { 0 });                // field 2: device_id
-    write_u16(&mut buf, if has_session_id { 8 } else { 0 });               // field 3: session_id
-    write_u16(&mut buf, if has_event_name { 12 } else { 0 });              // field 4: event_name
-    write_u16(&mut buf, if has_payload { 16 } else { 0 });                 // field 5: payload
+    write_u16(&mut buf, if has_service { 32 } else { 0 });                 // field 2: service at +32
+    write_u16(&mut buf, if has_device_id { 4 } else { 0 });                // field 3: device_id
+    write_u16(&mut buf, if has_session_id { 8 } else { 0 });               // field 4: session_id
+    write_u16(&mut buf, if has_event_name { 12 } else { 0 });              // field 5: event_name
+    write_u16(&mut buf, if has_payload { 16 } else { 0 });                 // field 6: payload
+    buf.extend_from_slice(&[0u8; 2]);                                       // vtable alignment padding
 
     // Table
     let table_start = buf.len();
@@ -81,6 +87,10 @@ pub fn encode_event(params: &EventParams<'_>) -> Vec<u8> {
     // padding (3 bytes)
     buf.extend_from_slice(&[0u8; 3]);
 
+    // service offset (u32)
+    let service_off_pos = buf.len();
+    write_u32(&mut buf, 0);
+
     // Vectors and strings
     align4(&mut buf);
 
@@ -90,6 +100,10 @@ pub fn encode_event(params: &EventParams<'_>) -> Vec<u8> {
 
     // session_id
     let session_id_start = params.session_id.map(|id| write_byte_vector(&mut buf, id));
+    align4(&mut buf);
+
+    // service
+    let service_start = params.service.map(|s| write_string(&mut buf, s));
     align4(&mut buf);
 
     // event_name
@@ -107,6 +121,9 @@ pub fn encode_event(params: &EventParams<'_>) -> Vec<u8> {
     }
     if let Some(start) = session_id_start {
         patch_offset(&mut buf, session_id_off_pos, start);
+    }
+    if let Some(start) = service_start {
+        patch_offset(&mut buf, service_off_pos, start);
     }
     if let Some(start) = event_name_start {
         patch_offset(&mut buf, event_name_off_pos, start);
@@ -280,11 +297,12 @@ pub fn encode_event_data_into(buf: &mut Vec<u8>, events: &[EventParams<'_>]) -> 
 fn encode_event_into(buf: &mut Vec<u8>, params: &EventParams<'_>) {
     let has_device_id = params.device_id.is_some();
     let has_session_id = params.session_id.is_some();
+    let has_service = params.service.is_some();
     let has_event_name = params.event_name.is_some();
     let has_payload = params.payload.is_some();
 
-    let vtable_size: u16 = 4 + 6 * 2;
-    let table_size: u16 = 4 + 28;
+    let vtable_size: u16 = 4 + 7 * 2;
+    let table_size: u16 = 4 + 32;
 
     // Root offset placeholder
     let root_pos = buf.len();
@@ -295,12 +313,14 @@ fn encode_event_into(buf: &mut Vec<u8>, params: &EventParams<'_>) {
     write_u16(buf, vtable_size);
     write_u16(buf, table_size);
 
-    write_u16(buf, 28);
-    write_u16(buf, 20);
-    write_u16(buf, if has_device_id { 4 } else { 0 });
-    write_u16(buf, if has_session_id { 8 } else { 0 });
-    write_u16(buf, if has_event_name { 12 } else { 0 });
-    write_u16(buf, if has_payload { 16 } else { 0 });
+    write_u16(buf, 28);                                                // field 0: event_type at +28
+    write_u16(buf, 20);                                                // field 1: timestamp at +20
+    write_u16(buf, if has_service { 32 } else { 0 });                 // field 2: service at +32
+    write_u16(buf, if has_device_id { 4 } else { 0 });                // field 3: device_id
+    write_u16(buf, if has_session_id { 8 } else { 0 });               // field 4: session_id
+    write_u16(buf, if has_event_name { 12 } else { 0 });              // field 5: event_name
+    write_u16(buf, if has_payload { 16 } else { 0 });                 // field 6: payload
+    buf.extend_from_slice(&[0u8; 2]);                                  // vtable alignment padding
 
     // Table
     let table_start = buf.len();
@@ -320,11 +340,16 @@ fn encode_event_into(buf: &mut Vec<u8>, params: &EventParams<'_>) {
     buf.push(params.event_type.as_u8());
     buf.extend_from_slice(&[0u8; 3]);
 
+    let service_off_pos = buf.len();
+    write_u32(buf, 0);
+
     align4(buf);
 
     let device_id_start = params.device_id.map(|id| write_byte_vector(buf, id));
     align4(buf);
     let session_id_start = params.session_id.map(|id| write_byte_vector(buf, id));
+    align4(buf);
+    let service_start = params.service.map(|s| write_string(buf, s));
     align4(buf);
     let event_name_start = params.event_name.map(|name| write_string(buf, name));
     align4(buf);
@@ -338,6 +363,9 @@ fn encode_event_into(buf: &mut Vec<u8>, params: &EventParams<'_>) {
     }
     if let Some(start) = session_id_start {
         patch_offset(buf, session_id_off_pos, start);
+    }
+    if let Some(start) = service_start {
+        patch_offset(buf, service_off_pos, start);
     }
     if let Some(start) = event_name_start {
         patch_offset(buf, event_name_off_pos, start);
