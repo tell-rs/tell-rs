@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.2.1
+## v0.3.0
 
 - client: identify flattens traits into top-level payload instead of nesting under traits key
 - encoding: service field added to EventParams in benchmarks
