@@ -25,6 +25,7 @@ fn bench_encode_event(c: &mut Criterion) {
                     encode_event(&EventParams {
                         event_type: EventType::Track,
                         timestamp: 1700000000000,
+                        service: None,
                         device_id: Some(&device_id),
                         session_id: Some(&session_id),
                         event_name: Some("Page Viewed"),
@@ -52,6 +53,7 @@ fn bench_encode_event_data(c: &mut Criterion) {
                 encode_event(&EventParams {
                     event_type: EventType::Track,
                     timestamp: 1700000000000,
+                    service: None,
                     device_id: Some(&device_id),
                     session_id: Some(&session_id),
                     event_name: Some("Page Viewed"),
@@ -95,6 +97,7 @@ fn bench_encode_full_batch(c: &mut Criterion) {
                             encode_event(&EventParams {
                                 event_type: EventType::Track,
                                 timestamp: 1700000000000,
+                                service: None,
                                 device_id: Some(&device_id),
                                 session_id: Some(&session_id),
                                 event_name: Some("Page Viewed"),
@@ -210,6 +213,7 @@ fn bench_encode_full_batch_into(c: &mut Criterion) {
             .map(|_| EventParams {
                 event_type: EventType::Track,
                 timestamp: 1700000000000,
+                service: None,
                 device_id: Some(&device_id),
                 session_id: Some(&session_id),
                 event_name: Some("Page Viewed"),

@@ -26,7 +26,7 @@ use crate::worker::{WorkerMessage, spawn_worker};
 /// #[tokio::main]
 /// async fn main() {
 ///     let client = Tell::new(
-///         TellConfig::production("a1b2c3d4e5f60718293a4b5c6d7e8f90").unwrap()
+///         TellConfig::production("feed1e11feed1e11feed1e11feed1e11").unwrap()
 ///     ).unwrap();
 ///
 ///     client.track("user_123", "Page Viewed", Some(json!({"url": "/home"})));
@@ -186,17 +186,21 @@ impl Tell {
             return;
         }
 
-        // Build {"user_id":"...","traits":{...}} directly as bytes
+        // Build {"user_id":"...", ...traits} directly as bytes (flat payload)
         let trait_bytes = traits.into_payload();
-        let cap = 24 + user_id.len() + trait_bytes.as_ref().map_or(0, |b| 10 + b.len());
+        let traits_inner = trait_bytes.as_deref().and_then(|t| {
+            if t.len() > 2 && t[0] == b'{' { Some(&t[1..]) } else { None }
+        });
+        let cap = 24 + user_id.len() + traits_inner.map_or(0, |t| t.len());
         let mut buf = Vec::with_capacity(cap);
         buf.extend_from_slice(b"{\"user_id\":");
         let _ = serde_json::to_writer(&mut buf, &user_id);
-        if let Some(ref tb) = trait_bytes {
-            buf.extend_from_slice(b",\"traits\":");
-            buf.extend_from_slice(tb);
+        if let Some(inner) = traits_inner {
+            buf.push(b',');
+            buf.extend_from_slice(inner);
+        } else {
+            buf.push(b'}');
         }
-        buf.push(b'}');
 
         let _ = self.inner.tx.try_send(WorkerMessage::Event(QueuedEvent {
             event_type: EventType::Identify,

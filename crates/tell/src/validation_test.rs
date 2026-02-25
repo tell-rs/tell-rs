@@ -2,7 +2,7 @@ use crate::validation::*;
 
 #[test]
 fn valid_api_key() {
-    let result = validate_and_decode_api_key("a1b2c3d4e5f60718293a4b5c6d7e8f90");
+    let result = validate_and_decode_api_key("feed1e11feed1e11feed1e11feed1e11");
     assert!(result.is_ok());
     let bytes = result.unwrap();
     assert_eq!(bytes[0], 0xa1);
@@ -24,7 +24,7 @@ fn api_key_too_short() {
 
 #[test]
 fn api_key_too_long() {
-    let result = validate_and_decode_api_key("a1b2c3d4e5f60718293a4b5c6d7e8f90ff");
+    let result = validate_and_decode_api_key("feed1e11feed1e11feed1e11feed1e11ff");
     assert!(result.is_err());
 }
 

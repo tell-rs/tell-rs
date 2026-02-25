@@ -49,7 +49,7 @@ fn bench_pipeline_flush(c: &mut Criterion) {
                 b.to_async(&rt).iter_custom(|iters| {
                     let addr = addr.clone();
                     async move {
-                        let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+                        let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
                             .endpoint(&addr)
                             .batch_size(scenario.events_per_batch)
                             .flush_interval(Duration::from_secs(3600))
@@ -104,7 +104,7 @@ fn bench_pipeline_log_flush(c: &mut Criterion) {
                 b.to_async(&rt).iter_custom(|iters| {
                     let addr = addr.clone();
                     async move {
-                        let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+                        let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
                             .endpoint(&addr)
                             .batch_size(scenario.events_per_batch)
                             .flush_interval(Duration::from_secs(3600))

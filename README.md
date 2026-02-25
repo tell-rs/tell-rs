@@ -30,7 +30,7 @@ use tell::{Tell, TellConfig, props};
 #[tokio::main]
 async fn main() {
     let client = Tell::new(
-        TellConfig::production("a1b2c3d4e5f60718293a4b5c6d7e8f90").unwrap()
+        TellConfig::production("feed1e11feed1e11feed1e11feed1e11").unwrap()
     ).unwrap();
 
     // Track events
@@ -92,13 +92,13 @@ cargo run -p tell-bench --example throughput --release   # delivery throughput
 use tell::TellConfig;
 
 // Production — collect.tell.rs:50000, batch=100, flush=10s
-let config = TellConfig::production("a1b2c3d4e5f60718293a4b5c6d7e8f90").unwrap();
+let config = TellConfig::production("feed1e11feed1e11feed1e11feed1e11").unwrap();
 
 // Development — localhost:50000, batch=10, flush=2s
-let config = TellConfig::development("a1b2c3d4e5f60718293a4b5c6d7e8f90").unwrap();
+let config = TellConfig::development("feed1e11feed1e11feed1e11feed1e11").unwrap();
 
 // Custom — see crates/tell/examples/config.rs for all builder options
-let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
     .service("my-backend")                // stamped on every event and log
     .endpoint("collect.internal:50000")
     .on_error(|e| eprintln!("[Tell] {e}"))

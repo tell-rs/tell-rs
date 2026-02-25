@@ -31,7 +31,7 @@ async fn track_sends_event_batch_to_tcp_server() {
         received_clone.lock().unwrap().push(frame);
     });
 
-    let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+    let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
         .endpoint(addr.to_string())
         .batch_size(10)
         .flush_interval(Duration::from_secs(60))
@@ -84,7 +84,7 @@ async fn identify_and_group_send_events() {
         }
     });
 
-    let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+    let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
         .endpoint(addr.to_string())
         .batch_size(100)
         .flush_interval(Duration::from_secs(60))
@@ -122,7 +122,7 @@ async fn log_sends_to_server() {
         received_clone.lock().unwrap().push(frame);
     });
 
-    let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+    let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
         .endpoint(addr.to_string())
         .batch_size(10)
         .flush_interval(Duration::from_secs(60))
@@ -159,7 +159,7 @@ async fn revenue_sends_order_completed() {
         received_clone.lock().unwrap().push(frame);
     });
 
-    let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+    let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
         .endpoint(addr.to_string())
         .batch_size(10)
         .flush_interval(Duration::from_secs(60))
@@ -209,7 +209,7 @@ async fn super_properties_merged() {
         }
     });
 
-    let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+    let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
         .endpoint(addr.to_string())
         .batch_size(1) // one event per batch for clean frame separation
         .flush_interval(Duration::from_secs(60))
@@ -268,7 +268,7 @@ async fn validation_errors_reported_via_callback() {
     let errors = Arc::new(Mutex::new(Vec::new()));
     let errors_clone = errors.clone();
 
-    let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+    let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
         .endpoint("127.0.0.1:1") // won't actually connect for validation errors
         .on_error(move |e| {
             errors_clone.lock().unwrap().push(format!("{e}"));
@@ -312,7 +312,7 @@ async fn reset_session_changes_id() {
         }
     });
 
-    let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+    let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
         .endpoint(addr.to_string())
         .batch_size(1)
         .flush_interval(Duration::from_secs(60))
@@ -366,7 +366,7 @@ async fn close_flushes_remaining() {
         }
     });
 
-    let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+    let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
         .endpoint(addr.to_string())
         .batch_size(1000) // won't hit size threshold
         .flush_interval(Duration::from_secs(60)) // won't hit time threshold

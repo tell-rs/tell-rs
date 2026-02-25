@@ -7,7 +7,7 @@ use tell::{Tell, TellConfig};
 
 #[tokio::main]
 async fn main() {
-    let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+    let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
         .endpoint("collect.tell.rs:50000")          // default: collect.tell.rs:50000
         .service("my-api")                           // app-level service name for filtering
         .batch_size(100)                             // default: 100 events per batch

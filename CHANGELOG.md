@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.1
+
+- client: identify flattens traits into top-level payload instead of nesting under traits key
+- encoding: service field added to EventParams in benchmarks
+- docs: sanitize placeholder API keys across README, examples, and tests
+
 ## v0.2.0
 
 Breaking:

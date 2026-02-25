@@ -9,7 +9,7 @@
 //! #[tokio::main]
 //! async fn main() {
 //!     let client = Tell::new(
-//!         TellConfig::development("a1b2c3d4e5f60718293a4b5c6d7e8f90").unwrap()
+//!         TellConfig::development("feed1e11feed1e11feed1e11feed1e11").unwrap()
 //!     ).unwrap();
 //!
 //!     client.track("user_123", "Page Viewed", props! { "url" => "/home" });

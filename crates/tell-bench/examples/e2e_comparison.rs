@@ -128,7 +128,7 @@ async fn run_tell_benchmark() {
 
     let log_struct = LogStruct::default();
 
-    let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+    let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
         .endpoint(&addr)
         .batch_size(10_000) // flush in batches of 10K
         .flush_interval(Duration::from_secs(3600))

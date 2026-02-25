@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::config::*;
 
-const VALID_KEY: &str = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
+const VALID_KEY: &str = "feed1e11feed1e11feed1e11feed1e11";
 
 #[test]
 fn builder_defaults() {

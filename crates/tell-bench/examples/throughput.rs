@@ -45,7 +45,7 @@ async fn main() {
     println!("  {:>10}  {:>12}  {:>12}", "---", "---", "---");
 
     for &batch_size in BATCH_SIZES {
-        let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+        let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
             .endpoint(&addr)
             .batch_size(batch_size)
             .flush_interval(Duration::from_secs(3600)) // only batch_size triggers flush
@@ -83,7 +83,7 @@ async fn main() {
     println!("  {:>10}  {:>12}  {:>12}", "---", "---", "---");
 
     for &batch_size in BATCH_SIZES {
-        let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+        let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
             .endpoint(&addr)
             .batch_size(batch_size)
             .flush_interval(Duration::from_secs(3600))
@@ -122,7 +122,7 @@ async fn main() {
     println!("  {:>10}  {:>12}  {:>12}", "---", "---", "---");
 
     for &batch_size in BATCH_SIZES {
-        let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+        let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
             .endpoint(&addr)
             .batch_size(batch_size)
             .flush_interval(Duration::from_secs(3600))

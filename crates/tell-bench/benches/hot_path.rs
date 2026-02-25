@@ -9,7 +9,7 @@ fn make_client(rt: &Runtime) -> Tell {
     // Non-routable endpoint — worker spawns but never connects.
     // Unbounded channel absorbs all sends without backpressure.
     rt.block_on(async {
-        let config = TellConfig::builder("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+        let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
             .endpoint("192.0.2.1:50000")
             .batch_size(100_000) // never auto-flush
             .flush_interval(Duration::from_secs(3600)) // never timer-flush

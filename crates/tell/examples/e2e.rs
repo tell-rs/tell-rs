@@ -13,7 +13,7 @@
 use serde_json::json;
 use tell::{props, Props, Events, Tell, TellConfig};
 
-const API_KEY: &str = "4cc3542f199d280d29eace8497ed062f";
+const API_KEY: &str = "feed1e11feed1e11feed1e11feed1e11";
 const USER: &str = "e2e_user_rust";
 
 #[tokio::main]
