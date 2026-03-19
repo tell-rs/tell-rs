@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.4.0
+
+New:
+- metrics: gauge, counter, histogram types with zero-alloc label path
+- metrics: _dyn variants for runtime-generated label values
+- config: source builder method for hostname/instance tagging on metrics
+- config: buffer_path and buffer_max_bytes for opt-in disk WAL
+- buffer: disk WAL persists unsent batches across restarts and shutdown timeouts
+- logging: try_log returns backpressure signal instead of silently dropping
+
+Fix:
+- worker: bulk message drain reduces overhead under high throughput
+- worker: inline retry with backoff replaces fire-and-forget spawned retries
+- worker: graceful shutdown saves queued data to WAL when TCP flush times out
+- client: flush and close handle full channel via send_timeout instead of failing immediately
+- client: parking_lot RwLock replaces std RwLock, removing lock poisoning panics
+
 ## v0.3.0
 
 - client: identify flattens traits into top-level payload instead of nesting under traits key

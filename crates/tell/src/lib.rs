@@ -19,16 +19,19 @@
 //! }
 //! ```
 
+pub(crate) mod buffer;
 mod client;
 mod config;
-mod error;
-mod types;
 mod constants;
+mod error;
 mod props;
+mod transport;
+mod types;
 mod validation;
 mod worker;
-mod transport;
 
+#[cfg(test)]
+mod buffer_test;
 #[cfg(test)]
 mod config_test;
 #[cfg(test)]
@@ -39,8 +42,10 @@ mod validation_test;
 pub use client::Tell;
 pub use config::{TellConfig, TellConfigBuilder};
 pub use constants::Events;
-pub use error::{TellError, Result};
-pub use props::{Props, IntoPayload};
-pub use types::{EventType, LogEventType, LogLevel, SchemaType};
+pub use error::{Result, TellError};
+pub use props::{IntoPayload, Props};
+pub use types::{
+    EventType, HistogramParams, LogEventType, LogLevel, MetricType, SchemaType, Temporality,
+};
 
 pub use tell_encoding;

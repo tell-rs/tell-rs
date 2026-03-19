@@ -1,10 +1,10 @@
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 
-use tell_bench::{generate_payload, SCENARIOS};
+use tell_bench::{SCENARIOS, generate_payload};
 use tell_encoding::{
+    BatchParams, EventParams, EventType, LogEntryParams, LogEventType, LogLevel, SchemaType,
     encode_batch, encode_event, encode_event_data, encode_event_data_into, encode_log_data,
-    encode_log_data_into, encode_log_entry, BatchParams, EventParams, EventType, LogEntryParams,
-    LogEventType, LogLevel, SchemaType,
+    encode_log_data_into, encode_log_entry,
 };
 
 fn bench_encode_event(c: &mut Criterion) {

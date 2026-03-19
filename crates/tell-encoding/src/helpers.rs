@@ -16,6 +16,12 @@ pub fn write_u64(buf: &mut Vec<u8>, value: u64) {
     buf.extend_from_slice(&value.to_le_bytes());
 }
 
+/// Write an f64 (double) in little-endian IEEE 754 format.
+#[inline]
+pub fn write_f64(buf: &mut Vec<u8>, value: f64) {
+    buf.extend_from_slice(&value.to_le_bytes());
+}
+
 /// Write an i32 in little-endian format.
 #[inline]
 pub fn write_i32(buf: &mut Vec<u8>, value: i32) {

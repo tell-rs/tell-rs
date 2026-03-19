@@ -38,8 +38,15 @@ pub fn encode_event(params: &EventParams<'_>) -> Vec<u8> {
     let event_name_size = params.event_name.map(|s| 4 + s.len() + 1).unwrap_or(0);
     let payload_size = params.payload.map(|p| 4 + p.len()).unwrap_or(0);
 
-    let estimated = 4 + vtable_size as usize + table_size as usize
-        + device_id_size + session_id_size + service_size + event_name_size + payload_size + 16;
+    let estimated = 4
+        + vtable_size as usize
+        + table_size as usize
+        + device_id_size
+        + session_id_size
+        + service_size
+        + event_name_size
+        + payload_size
+        + 16;
     let mut buf = Vec::with_capacity(estimated);
 
     // Root offset placeholder
@@ -51,14 +58,14 @@ pub fn encode_event(params: &EventParams<'_>) -> Vec<u8> {
     write_u16(&mut buf, table_size);
 
     // Field offsets
-    write_u16(&mut buf, 28);                                                // field 0: event_type at +28
-    write_u16(&mut buf, 20);                                                // field 1: timestamp at +20
-    write_u16(&mut buf, if has_service { 32 } else { 0 });                 // field 2: service at +32
-    write_u16(&mut buf, if has_device_id { 4 } else { 0 });                // field 3: device_id
-    write_u16(&mut buf, if has_session_id { 8 } else { 0 });               // field 4: session_id
-    write_u16(&mut buf, if has_event_name { 12 } else { 0 });              // field 5: event_name
-    write_u16(&mut buf, if has_payload { 16 } else { 0 });                 // field 6: payload
-    buf.extend_from_slice(&[0u8; 2]);                                       // vtable alignment padding
+    write_u16(&mut buf, 28); // field 0: event_type at +28
+    write_u16(&mut buf, 20); // field 1: timestamp at +20
+    write_u16(&mut buf, if has_service { 32 } else { 0 }); // field 2: service at +32
+    write_u16(&mut buf, if has_device_id { 4 } else { 0 }); // field 3: device_id
+    write_u16(&mut buf, if has_session_id { 8 } else { 0 }); // field 4: session_id
+    write_u16(&mut buf, if has_event_name { 12 } else { 0 }); // field 5: event_name
+    write_u16(&mut buf, if has_payload { 16 } else { 0 }); // field 6: payload
+    buf.extend_from_slice(&[0u8; 2]); // vtable alignment padding
 
     // Table
     let table_start = buf.len();
@@ -197,8 +204,12 @@ pub fn encode_event_data(encoded_events: &[Vec<u8>]) -> Vec<u8> {
 
         // Read root offset from the event (first 4 bytes LE u32)
         let root_offset = if event_bytes.len() >= 4 {
-            u32::from_le_bytes([event_bytes[0], event_bytes[1], event_bytes[2], event_bytes[3]])
-                as usize
+            u32::from_le_bytes([
+                event_bytes[0],
+                event_bytes[1],
+                event_bytes[2],
+                event_bytes[3],
+            ]) as usize
         } else {
             0
         };
@@ -229,7 +240,10 @@ pub fn encode_event_data(encoded_events: &[Vec<u8>]) -> Vec<u8> {
 /// The caller can reuse `buf` across flushes via `buf.clear()`.
 ///
 /// Returns the range `start..buf.len()` of the EventData bytes within `buf`.
-pub fn encode_event_data_into(buf: &mut Vec<u8>, events: &[EventParams<'_>]) -> std::ops::Range<usize> {
+pub fn encode_event_data_into(
+    buf: &mut Vec<u8>,
+    events: &[EventParams<'_>],
+) -> std::ops::Range<usize> {
     let data_start = buf.len();
     let count = events.len();
 
@@ -313,14 +327,14 @@ fn encode_event_into(buf: &mut Vec<u8>, params: &EventParams<'_>) {
     write_u16(buf, vtable_size);
     write_u16(buf, table_size);
 
-    write_u16(buf, 28);                                                // field 0: event_type at +28
-    write_u16(buf, 20);                                                // field 1: timestamp at +20
-    write_u16(buf, if has_service { 32 } else { 0 });                 // field 2: service at +32
-    write_u16(buf, if has_device_id { 4 } else { 0 });                // field 3: device_id
-    write_u16(buf, if has_session_id { 8 } else { 0 });               // field 4: session_id
-    write_u16(buf, if has_event_name { 12 } else { 0 });              // field 5: event_name
-    write_u16(buf, if has_payload { 16 } else { 0 });                 // field 6: payload
-    buf.extend_from_slice(&[0u8; 2]);                                  // vtable alignment padding
+    write_u16(buf, 28); // field 0: event_type at +28
+    write_u16(buf, 20); // field 1: timestamp at +20
+    write_u16(buf, if has_service { 32 } else { 0 }); // field 2: service at +32
+    write_u16(buf, if has_device_id { 4 } else { 0 }); // field 3: device_id
+    write_u16(buf, if has_session_id { 8 } else { 0 }); // field 4: session_id
+    write_u16(buf, if has_event_name { 12 } else { 0 }); // field 5: event_name
+    write_u16(buf, if has_payload { 16 } else { 0 }); // field 6: payload
+    buf.extend_from_slice(&[0u8; 2]); // vtable alignment padding
 
     // Table
     let table_start = buf.len();

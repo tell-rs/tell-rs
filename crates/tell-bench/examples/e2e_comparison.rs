@@ -97,14 +97,20 @@ fn run_flashlog_benchmark() {
     let total = enqueue_elapsed + finalize_elapsed;
 
     println!("  FlashLog → Disk (tmpdir)");
-    println!("  ├─ Caller enqueue:  {:>12}  ({:.0} ns/msg)",
+    println!(
+        "  ├─ Caller enqueue:  {:>12}  ({:.0} ns/msg)",
         format_duration(enqueue_elapsed),
-        enqueue_elapsed.as_nanos() as f64 / N as f64);
-    println!("  ├─ Finalize (join): {:>12}  (serialize + write + fsync)",
-        format_duration(finalize_elapsed));
-    println!("  └─ Total pipeline:  {:>12}  ({:.0} ns/msg)",
+        enqueue_elapsed.as_nanos() as f64 / N as f64
+    );
+    println!(
+        "  ├─ Finalize (join): {:>12}  (serialize + write + fsync)",
+        format_duration(finalize_elapsed)
+    );
+    println!(
+        "  └─ Total pipeline:  {:>12}  ({:.0} ns/msg)",
         format_duration(total),
-        total.as_nanos() as f64 / N as f64);
+        total.as_nanos() as f64 / N as f64
+    );
 }
 
 async fn run_tell_benchmark() {
@@ -156,14 +162,20 @@ async fn run_tell_benchmark() {
     let total = enqueue_elapsed + close_elapsed;
 
     println!("  Tell SDK → TCP (localhost null server)");
-    println!("  ├─ Caller enqueue:  {:>12}  ({:.0} ns/msg)",
+    println!(
+        "  ├─ Caller enqueue:  {:>12}  ({:.0} ns/msg)",
         format_duration(enqueue_elapsed),
-        enqueue_elapsed.as_nanos() as f64 / N as f64);
-    println!("  ├─ Close (flush):   {:>12}  (encode + batch + TCP send)",
-        format_duration(close_elapsed));
-    println!("  └─ Total pipeline:  {:>12}  ({:.0} ns/msg)",
+        enqueue_elapsed.as_nanos() as f64 / N as f64
+    );
+    println!(
+        "  ├─ Close (flush):   {:>12}  (encode + batch + TCP send)",
+        format_duration(close_elapsed)
+    );
+    println!(
+        "  └─ Total pipeline:  {:>12}  ({:.0} ns/msg)",
         format_duration(total),
-        total.as_nanos() as f64 / N as f64);
+        total.as_nanos() as f64 / N as f64
+    );
 
     server.abort();
 }

@@ -9,7 +9,7 @@
 use std::time::{Duration, Instant};
 
 use serde_json::json;
-use tell::{props, Tell, TellConfig};
+use tell::{Tell, TellConfig, props};
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 
@@ -38,7 +38,10 @@ async fn main() {
     let payload = json!({"url": "/home", "referrer": "google", "screen": "1920x1080"});
 
     println!();
-    println!("  Sustained delivery throughput — {} events over TCP", format_count(TOTAL_EVENTS));
+    println!(
+        "  Sustained delivery throughput — {} events over TCP",
+        format_count(TOTAL_EVENTS)
+    );
     println!("  Null TCP server on localhost, ~200B payload per event");
     println!();
     println!("  {:>10}  {:>12}  {:>12}", "Batch", "Events/sec", "Total");

@@ -1,4 +1,7 @@
-use std::sync::{Arc, LazyLock, RwLock};
+use std::borrow::Cow;
+use std::sync::{Arc, LazyLock};
+
+use parking_lot::RwLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossfire::MTx;
@@ -6,9 +9,12 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::config::TellConfig;
-use crate::error::{TellError, Result};
+use crate::error::{Result, TellError};
 use crate::props::IntoPayload;
-use crate::types::{EventType, LogLevel, QueuedEvent, QueuedLog};
+use crate::types::{
+    EventType, HistogramParams, LogLevel, MetricType, QueuedEvent, QueuedLog, QueuedMetric,
+    Temporality,
+};
 use crate::validation::{validate_event_name, validate_log_message, validate_user_id};
 use crate::worker::{WorkerMessage, spawn_worker};
 
@@ -84,8 +90,7 @@ fn merge_json_payload(key_colon: &[u8], value: &str, props: Option<&[u8]>) -> Ve
         }
     });
 
-    let cap = 2 + key_colon.len() + value.len() + 2
-        + props_inner.map_or(0, |p| p.len());
+    let cap = 2 + key_colon.len() + value.len() + 2 + props_inner.map_or(0, |p| p.len());
     let mut buf = Vec::with_capacity(cap);
 
     buf.push(b'{');
@@ -135,7 +140,7 @@ impl Tell {
         if let Some(bytes) = properties.into_payload()
             && let Ok(Value::Object(map)) = serde_json::from_slice(&bytes)
         {
-            let mut sp = self.inner.super_properties.write().unwrap();
+            let mut sp = self.inner.super_properties.write();
             let inner = Arc::make_mut(&mut sp);
             inner.extend(map);
         }
@@ -143,7 +148,7 @@ impl Tell {
 
     /// Remove a super property by key.
     pub fn unregister(&self, key: &str) {
-        let mut sp = self.inner.super_properties.write().unwrap();
+        let mut sp = self.inner.super_properties.write();
         let inner = Arc::make_mut(&mut sp);
         inner.remove(key);
     }
@@ -189,7 +194,11 @@ impl Tell {
         // Build {"user_id":"...", ...traits} directly as bytes (flat payload)
         let trait_bytes = traits.into_payload();
         let traits_inner = trait_bytes.as_deref().and_then(|t| {
-            if t.len() > 2 && t[0] == b'{' { Some(&t[1..]) } else { None }
+            if t.len() > 2 && t[0] == b'{' {
+                Some(&t[1..])
+            } else {
+                None
+            }
         });
         let cap = 24 + user_id.len() + traits_inner.map_or(0, |t| t.len());
         let mut buf = Vec::with_capacity(cap);
@@ -213,12 +222,7 @@ impl Tell {
     }
 
     /// Associate a user with a group.
-    pub fn group(
-        &self,
-        user_id: &str,
-        group_id: &str,
-        properties: impl IntoPayload,
-    ) {
+    pub fn group(&self, user_id: &str, group_id: &str, properties: impl IntoPayload) {
         if let Err(e) = validate_user_id(user_id) {
             self.report_error(e);
             return;
@@ -229,12 +233,16 @@ impl Tell {
         }
 
         let prop_bytes = properties.into_payload();
-        let sp = self.inner.super_properties.read().unwrap();
+        let sp = self.inner.super_properties.read();
         if sp.is_empty() {
             drop(sp);
             // Fast path: build {"group_id":"...","user_id":"...",...props} as bytes
             let props_inner = prop_bytes.as_deref().and_then(|p| {
-                if p.len() > 2 && p[0] == b'{' { Some(&p[1..]) } else { None }
+                if p.len() > 2 && p[0] == b'{' {
+                    Some(&p[1..])
+                } else {
+                    None
+                }
             });
             let cap = 40 + group_id.len() + user_id.len() + props_inner.map_or(0, |p| p.len());
             let mut buf = Vec::with_capacity(cap);
@@ -309,14 +317,21 @@ impl Tell {
         }
 
         let prop_bytes = properties.into_payload();
-        let sp = self.inner.super_properties.read().unwrap();
+        let sp = self.inner.super_properties.read();
         if sp.is_empty() {
             drop(sp);
             // Fast path: build JSON directly as bytes
             let props_inner = prop_bytes.as_deref().and_then(|p| {
-                if p.len() > 2 && p[0] == b'{' { Some(&p[1..]) } else { None }
+                if p.len() > 2 && p[0] == b'{' {
+                    Some(&p[1..])
+                } else {
+                    None
+                }
             });
-            let cap = 80 + user_id.len() + currency.len() + order_id.len()
+            let cap = 80
+                + user_id.len()
+                + currency.len()
+                + order_id.len()
                 + props_inner.map_or(0, |p| p.len());
             let mut buf = Vec::with_capacity(cap);
             buf.extend_from_slice(b"{\"user_id\":");
@@ -405,6 +420,9 @@ impl Tell {
     /// `component` is an optional label for the module or subsystem that produced
     /// the log (e.g. `"auth"`, `"cache"`, `"db"`). The app-level `service` name
     /// is taken from [`TellConfig`] and stamped automatically.
+    ///
+    /// Fire-and-forget: silently drops the entry if the channel is full.
+    /// Use [`try_log`](Self::try_log) when the caller needs backpressure.
     pub fn log(
         &self,
         level: LogLevel,
@@ -412,21 +430,38 @@ impl Tell {
         component: Option<&str>,
         data: impl IntoPayload,
     ) {
+        let _ = self.try_log(level, message, component, data);
+    }
+
+    /// Send a structured log entry, returning `false` if the channel is full.
+    ///
+    /// Same as [`log`](Self::log) but lets the caller react to backpressure
+    /// (e.g. stop reading a file and retry on the next poll).
+    pub fn try_log(
+        &self,
+        level: LogLevel,
+        message: &str,
+        component: Option<&str>,
+        data: impl IntoPayload,
+    ) -> bool {
         if let Err(e) = validate_log_message(message) {
             self.report_error(e);
-            return;
+            return true; // validation error, not channel pressure
         }
 
         let data_bytes = data.into_payload();
         let payload = merge_json_payload(b"\"message\":", message, data_bytes.as_deref());
 
-        let _ = self.inner.tx.try_send(WorkerMessage::Log(QueuedLog {
-            level,
-            timestamp: now_ms(),
-            session_id: self.read_session_id(),
-            component: component.map(|s| s.to_string()),
-            payload: Some(payload),
-        }));
+        self.inner
+            .tx
+            .try_send(WorkerMessage::Log(QueuedLog {
+                level,
+                timestamp: now_ms(),
+                session_id: self.read_session_id(),
+                component: component.map(|s| s.to_string()),
+                payload: Some(payload),
+            }))
+            .is_ok()
     }
 
     /// Log at **Emergency** level (RFC 5424 severity 0). System is unusable.
@@ -474,11 +509,162 @@ impl Tell {
         self.log(LogLevel::Trace, message, component, data);
     }
 
+    // --- Metrics ---
+
+    /// Send a gauge metric (point-in-time value).
+    ///
+    /// Labels are string key-value pairs for metric dimensions
+    /// (e.g. `&[("core", "0"), ("host", "web-01")]`).
+    ///
+    /// Zero heap allocation when name and labels are string literals.
+    /// Never blocks, never panics.
+    pub fn gauge(&self, name: &'static str, value: f64, labels: &[(&'static str, &'static str)]) {
+        self.send_metric(
+            MetricType::Gauge,
+            name,
+            value,
+            labels,
+            Temporality::Unspecified,
+        );
+    }
+
+    /// Send a counter metric (cumulative or delta count).
+    ///
+    /// Uses delta temporality by default (change since last report).
+    pub fn counter(&self, name: &'static str, value: f64, labels: &[(&'static str, &'static str)]) {
+        self.send_metric(MetricType::Counter, name, value, labels, Temporality::Delta);
+    }
+
+    /// Send a counter metric with explicit temporality.
+    pub fn counter_with_temporality(
+        &self,
+        name: &'static str,
+        value: f64,
+        labels: &[(&'static str, &'static str)],
+        temporality: Temporality,
+    ) {
+        self.send_metric(MetricType::Counter, name, value, labels, temporality);
+    }
+
+    /// Send a histogram metric (distribution with explicit buckets).
+    ///
+    /// `buckets` is a list of `(upper_bound, cumulative_count)` sorted by upper_bound.
+    /// Use `f64::INFINITY` for the final catch-all bucket.
+    pub fn histogram(
+        &self,
+        name: &'static str,
+        histogram: HistogramParams,
+        labels: &[(&'static str, &'static str)],
+    ) {
+        if name.is_empty() {
+            self.report_error(TellError::validation("name", "metric name is required"));
+            return;
+        }
+
+        let _ = self.inner.tx.try_send(WorkerMessage::Metric(QueuedMetric {
+            metric_type: MetricType::Histogram,
+            timestamp: now_ms() * 1_000_000,
+            name: Cow::Borrowed(name),
+            value: 0.0,
+            labels: labels
+                .iter()
+                .map(|&(k, v)| (Cow::Borrowed(k), Cow::Borrowed(v)))
+                .collect(),
+            temporality: Temporality::Cumulative,
+            histogram: Some(histogram),
+        }));
+    }
+
+    // --- Dynamic label variants (for runtime-generated label values) ---
+
+    /// Send a gauge with dynamic (non-static) label values. Allocates per call.
+    pub fn gauge_dyn(&self, name: &'static str, value: f64, labels: &[(&'static str, &str)]) {
+        self.send_metric_dyn(
+            MetricType::Gauge,
+            name,
+            value,
+            labels,
+            Temporality::Unspecified,
+        );
+    }
+
+    /// Send a counter with dynamic label values. Allocates per call.
+    pub fn counter_dyn(&self, name: &'static str, value: f64, labels: &[(&'static str, &str)]) {
+        self.send_metric_dyn(MetricType::Counter, name, value, labels, Temporality::Delta);
+    }
+
+    /// Send a counter with dynamic label values and explicit temporality.
+    pub fn counter_dyn_with_temporality(
+        &self,
+        name: &'static str,
+        value: f64,
+        labels: &[(&'static str, &str)],
+        temporality: Temporality,
+    ) {
+        self.send_metric_dyn(MetricType::Counter, name, value, labels, temporality);
+    }
+
+    /// Zero-allocation path for fully static names and labels.
+    fn send_metric(
+        &self,
+        metric_type: MetricType,
+        name: &'static str,
+        value: f64,
+        labels: &[(&'static str, &'static str)],
+        temporality: Temporality,
+    ) {
+        if name.is_empty() {
+            self.report_error(TellError::validation("name", "metric name is required"));
+            return;
+        }
+
+        let _ = self.inner.tx.try_send(WorkerMessage::Metric(QueuedMetric {
+            metric_type,
+            timestamp: now_ms() * 1_000_000,
+            name: Cow::Borrowed(name),
+            value,
+            labels: labels
+                .iter()
+                .map(|&(k, v)| (Cow::Borrowed(k), Cow::Borrowed(v)))
+                .collect(),
+            temporality,
+            histogram: None,
+        }));
+    }
+
+    /// Allocation path for dynamic label values (static keys, dynamic values).
+    fn send_metric_dyn(
+        &self,
+        metric_type: MetricType,
+        name: &'static str,
+        value: f64,
+        labels: &[(&'static str, &str)],
+        temporality: Temporality,
+    ) {
+        if name.is_empty() {
+            self.report_error(TellError::validation("name", "metric name is required"));
+            return;
+        }
+
+        let _ = self.inner.tx.try_send(WorkerMessage::Metric(QueuedMetric {
+            metric_type,
+            timestamp: now_ms() * 1_000_000,
+            name: Cow::Borrowed(name),
+            value,
+            labels: labels
+                .iter()
+                .map(|&(k, v)| (Cow::Borrowed(k), Cow::Owned(v.to_string())))
+                .collect(),
+            temporality,
+            histogram: None,
+        }));
+    }
+
     // --- Lifecycle ---
 
     /// Rotate the session ID.
     pub fn reset_session(&self) {
-        let mut session = self.inner.session_id.write().unwrap();
+        let mut session = self.inner.session_id.write();
         *session = new_uuid_bytes();
     }
 
@@ -487,7 +673,7 @@ impl Tell {
         let (tx, rx) = oneshot::channel();
         self.inner
             .tx
-            .try_send(WorkerMessage::Flush(tx))
+            .send_timeout(WorkerMessage::Flush(tx), self.inner.close_timeout)
             .map_err(|_| TellError::Closed)?;
         tokio::time::timeout(self.inner.close_timeout, rx)
             .await
@@ -496,11 +682,15 @@ impl Tell {
     }
 
     /// Flush and shut down the background worker.
+    ///
+    /// Waits up to `close_timeout` for the Close message to enter the channel
+    /// (handles backpressure when the ring buffer is full), then waits again
+    /// for the worker to finish flushing.
     pub async fn close(&self) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.inner
             .tx
-            .try_send(WorkerMessage::Close(tx))
+            .send_timeout(WorkerMessage::Close(tx), self.inner.close_timeout)
             .map_err(|_| TellError::Closed)?;
         tokio::time::timeout(self.inner.close_timeout, rx)
             .await
@@ -511,7 +701,7 @@ impl Tell {
     // --- Internal ---
 
     fn read_session_id(&self) -> [u8; 16] {
-        *self.inner.session_id.read().unwrap()
+        *self.inner.session_id.read()
     }
 
     fn build_track_payload_bytes(
@@ -519,10 +709,14 @@ impl Tell {
         user_id: &str,
         prop_bytes: Option<Vec<u8>>,
     ) -> Option<Vec<u8>> {
-        let sp = self.inner.super_properties.read().unwrap();
+        let sp = self.inner.super_properties.read();
         if sp.is_empty() {
             drop(sp);
-            Some(merge_json_payload(b"\"user_id\":", user_id, prop_bytes.as_deref()))
+            Some(merge_json_payload(
+                b"\"user_id\":",
+                user_id,
+                prop_bytes.as_deref(),
+            ))
         } else {
             // Slow path: clone and merge with super properties
             let map_clone = (**sp).clone();

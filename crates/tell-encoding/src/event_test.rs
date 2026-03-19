@@ -1,4 +1,6 @@
-use crate::{encode_event, encode_event_data, encode_event_data_into, EventParams, EventType, UUID_LENGTH};
+use crate::{
+    EventParams, EventType, UUID_LENGTH, encode_event, encode_event_data, encode_event_data_into,
+};
 
 #[test]
 fn encode_event_with_all_fields() {
@@ -57,7 +59,9 @@ fn encode_event_with_all_fields() {
     assert!(found, "event_name not found");
 
     // payload should appear
-    let found = bytes.windows(payload.len()).any(|w| w == payload.as_slice());
+    let found = bytes
+        .windows(payload.len())
+        .any(|w| w == payload.as_slice());
     assert!(found, "payload not found");
 }
 
@@ -99,19 +103,30 @@ fn encode_event_with_service() {
     assert!(found, "service string not found in encoded event");
 
     // VTable field 2 (service) should point to table+32
-    let vtable_start = root_offset - i32::from_le_bytes([
-        bytes[root_offset], bytes[root_offset + 1],
-        bytes[root_offset + 2], bytes[root_offset + 3],
-    ]) as usize;
+    let vtable_start = root_offset
+        - i32::from_le_bytes([
+            bytes[root_offset],
+            bytes[root_offset + 1],
+            bytes[root_offset + 2],
+            bytes[root_offset + 3],
+        ]) as usize;
     let field2 = u16::from_le_bytes([bytes[vtable_start + 8], bytes[vtable_start + 9]]);
-    assert_eq!(field2, 32, "vtable field 2 (service) should point to offset 32");
+    assert_eq!(
+        field2, 32,
+        "vtable field 2 (service) should point to offset 32"
+    );
 
     // service offset at table+32 should be non-zero (relative offset to string)
     let service_off = u32::from_le_bytes([
-        bytes[root_offset + 32], bytes[root_offset + 33],
-        bytes[root_offset + 34], bytes[root_offset + 35],
+        bytes[root_offset + 32],
+        bytes[root_offset + 33],
+        bytes[root_offset + 34],
+        bytes[root_offset + 35],
     ]);
-    assert_ne!(service_off, 0, "service offset should be non-zero when service is present");
+    assert_ne!(
+        service_off, 0,
+        "service offset should be non-zero when service is present"
+    );
 }
 
 #[test]
@@ -129,12 +144,18 @@ fn encode_event_without_service() {
     let root_offset = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
 
     // VTable field 2 (service) should be 0 (absent)
-    let vtable_start = root_offset - i32::from_le_bytes([
-        bytes[root_offset], bytes[root_offset + 1],
-        bytes[root_offset + 2], bytes[root_offset + 3],
-    ]) as usize;
+    let vtable_start = root_offset
+        - i32::from_le_bytes([
+            bytes[root_offset],
+            bytes[root_offset + 1],
+            bytes[root_offset + 2],
+            bytes[root_offset + 3],
+        ]) as usize;
     let field2 = u16::from_le_bytes([bytes[vtable_start + 8], bytes[vtable_start + 9]]);
-    assert_eq!(field2, 0, "vtable field 2 (service) should be 0 when absent");
+    assert_eq!(
+        field2, 0,
+        "vtable field 2 (service) should be 0 when absent"
+    );
 }
 
 #[test]
@@ -186,9 +207,7 @@ fn encode_event_data_multiple() {
     // All event names should be present
     for i in 0..5 {
         let name = format!("Event{i}");
-        let found = data
-            .windows(name.len())
-            .any(|w| w == name.as_bytes());
+        let found = data.windows(name.len()).any(|w| w == name.as_bytes());
         assert!(found, "Event name '{}' not found in event_data", name);
     }
 }
@@ -196,9 +215,12 @@ fn encode_event_data_multiple() {
 #[test]
 fn encode_event_data_into_matches_encode_event_data() {
     let device_ids: Vec<[u8; UUID_LENGTH]> = (0..5).map(|i| [i as u8; UUID_LENGTH]).collect();
-    let session_ids: Vec<[u8; UUID_LENGTH]> = (0..5).map(|i| [(i + 10) as u8; UUID_LENGTH]).collect();
+    let session_ids: Vec<[u8; UUID_LENGTH]> =
+        (0..5).map(|i| [(i + 10) as u8; UUID_LENGTH]).collect();
     let names: Vec<String> = (0..5).map(|i| format!("Event{i}")).collect();
-    let payloads: Vec<Vec<u8>> = (0..5).map(|i| format!(r#"{{"idx":{i}}}"#).into_bytes()).collect();
+    let payloads: Vec<Vec<u8>> = (0..5)
+        .map(|i| format!(r#"{{"idx":{i}}}"#).into_bytes())
+        .collect();
 
     let params: Vec<EventParams<'_>> = (0..5)
         .map(|i| EventParams {
@@ -218,7 +240,8 @@ fn encode_event_data_into_matches_encode_event_data() {
     let into_bytes = &buf[range];
 
     // Verify: valid FlatBuffer root
-    let root = u32::from_le_bytes([into_bytes[0], into_bytes[1], into_bytes[2], into_bytes[3]]) as usize;
+    let root =
+        u32::from_le_bytes([into_bytes[0], into_bytes[1], into_bytes[2], into_bytes[3]]) as usize;
     assert!(root < into_bytes.len());
 
     // Verify: all event names, device_ids, payloads are present
@@ -236,7 +259,9 @@ fn encode_event_data_into_matches_encode_event_data() {
         );
         let payload = format!(r#"{{"idx":{i}}}"#);
         assert!(
-            into_bytes.windows(payload.len()).any(|w| w == payload.as_bytes()),
+            into_bytes
+                .windows(payload.len())
+                .any(|w| w == payload.as_bytes()),
             "payload {} not found in encode_event_data_into output",
             i,
         );
@@ -277,7 +302,8 @@ fn encode_event_data_into_reuses_buffer() {
 
     // Second encoding is independently valid
     let into_bytes = &buf[range2.clone()];
-    let root = u32::from_le_bytes([into_bytes[0], into_bytes[1], into_bytes[2], into_bytes[3]]) as usize;
+    let root =
+        u32::from_le_bytes([into_bytes[0], into_bytes[1], into_bytes[2], into_bytes[3]]) as usize;
     assert!(root < into_bytes.len());
 }
 

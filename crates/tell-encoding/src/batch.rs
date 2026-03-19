@@ -1,5 +1,5 @@
 use crate::helpers::*;
-use crate::{BatchParams, API_KEY_LENGTH, DEFAULT_VERSION};
+use crate::{API_KEY_LENGTH, BatchParams, DEFAULT_VERSION};
 
 /// Encode a FlatBuffer Batch message.
 ///
@@ -33,7 +33,11 @@ pub fn encode_batch(params: &BatchParams<'_>) -> Vec<u8> {
 /// Encode a Batch into a caller-owned buffer (avoids allocation when buffer is reused).
 pub fn encode_batch_into(buf: &mut Vec<u8>, params: &BatchParams<'_>) {
     let has_batch_id = params.batch_id != 0;
-    let version = if params.version == 0 { DEFAULT_VERSION } else { params.version };
+    let version = if params.version == 0 {
+        DEFAULT_VERSION
+    } else {
+        params.version
+    };
 
     // VTable: size(u16) + table_size(u16) + 6 field slots (u16 each) = 16 bytes
     let vtable_size: u16 = 4 + 6 * 2;
@@ -45,7 +49,8 @@ pub fn encode_batch_into(buf: &mut Vec<u8>, params: &BatchParams<'_>) {
     let api_key_vec_size = 4 + API_KEY_LENGTH;
     let data_vec_size = 4 + params.data.len();
 
-    let estimated = 4 + vtable_size as usize + table_size as usize + api_key_vec_size + data_vec_size + 16;
+    let estimated =
+        4 + vtable_size as usize + table_size as usize + api_key_vec_size + data_vec_size + 16;
     buf.reserve(estimated);
 
     let base = buf.len();
@@ -59,12 +64,12 @@ pub fn encode_batch_into(buf: &mut Vec<u8>, params: &BatchParams<'_>) {
     write_u16(buf, table_size);
 
     // Field offsets
-    write_u16(buf, 4);                                              // field 0: api_key at table+4
-    write_u16(buf, 24);                                             // field 1: schema_type at table+24
-    write_u16(buf, 25);                                             // field 2: version at table+25
-    write_u16(buf, if has_batch_id { 16 } else { 0 });             // field 3: batch_id at table+16
-    write_u16(buf, 8);                                              // field 4: data at table+8
-    write_u16(buf, 0);                                              // field 5: source_ip (not used)
+    write_u16(buf, 4); // field 0: api_key at table+4
+    write_u16(buf, 24); // field 1: schema_type at table+24
+    write_u16(buf, 25); // field 2: version at table+25
+    write_u16(buf, if has_batch_id { 16 } else { 0 }); // field 3: batch_id at table+16
+    write_u16(buf, 8); // field 4: data at table+8
+    write_u16(buf, 0); // field 5: source_ip (not used)
 
     // Table
     let table_start = buf.len();

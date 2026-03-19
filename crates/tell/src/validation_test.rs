@@ -5,9 +5,10 @@ fn valid_api_key() {
     let result = validate_and_decode_api_key("feed1e11feed1e11feed1e11feed1e11");
     assert!(result.is_ok());
     let bytes = result.unwrap();
-    assert_eq!(bytes[0], 0xa1);
-    assert_eq!(bytes[1], 0xb2);
-    assert_eq!(bytes[15], 0x90);
+    // "feed1e11..." → fe ed 1e 11 fe ed 1e 11 fe ed 1e 11 fe ed 1e 11
+    assert_eq!(bytes[0], 0xfe);
+    assert_eq!(bytes[1], 0xed);
+    assert_eq!(bytes[15], 0x11);
 }
 
 #[test]
@@ -31,6 +32,13 @@ fn api_key_too_long() {
 #[test]
 fn api_key_non_hex() {
     let result = validate_and_decode_api_key("g1b2c3d4e5f60718293a4b5c6d7e8f90");
+    assert!(result.is_err());
+}
+
+#[test]
+fn api_key_non_hex_second_char() {
+    // First char valid, second char invalid — hits the `lo` error path
+    let result = validate_and_decode_api_key("1gb2c3d4e5f60718293a4b5c6d7e8f90");
     assert!(result.is_err());
 }
 

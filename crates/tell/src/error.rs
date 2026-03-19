@@ -26,6 +26,10 @@ pub enum TellError {
     /// JSON serialization error.
     #[error("serialization error: {0}")]
     Serialization(String),
+
+    /// A disk buffer (WAL) error.
+    #[error("buffer error: {0}")]
+    Buffer(String),
 }
 
 impl TellError {
@@ -43,6 +47,21 @@ impl TellError {
     pub fn network(msg: impl Into<String>) -> Self {
         Self::Network(msg.into())
     }
+
+    pub fn buffer(msg: impl Into<String>) -> Self {
+        Self::Buffer(msg.into())
+    }
 }
 
 pub type Result<T> = std::result::Result<T, TellError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn buffer_error_display() {
+        let err = TellError::buffer("disk full");
+        assert_eq!(format!("{err}"), "buffer error: disk full");
+    }
+}

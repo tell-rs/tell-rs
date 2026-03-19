@@ -1,22 +1,24 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
 
 use crossfire::{AsyncRx, MTx};
 use tell_encoding::{
-    encode_batch_into, encode_event_data_into, encode_log_data_into,
-    BatchParams, EventParams, LogEntryParams, SchemaType,
+    BatchParams, EventParams, LabelParam, LogEntryParams, MetricEntryParams, SchemaType,
+    encode_batch_into, encode_event_data_into, encode_log_data_into, encode_metric_data_into,
 };
 use tokio::sync::oneshot;
 
+use crate::buffer::DiskBuffer;
 use crate::config::TellConfig;
 use crate::error::TellError;
 use crate::transport::TcpTransport;
-use crate::types::{QueuedEvent, QueuedLog};
+use crate::types::{QueuedEvent, QueuedLog, QueuedMetric};
 
 /// Messages sent to the background worker.
 pub(crate) enum WorkerMessage {
     Event(QueuedEvent),
     Log(QueuedLog),
+    Metric(QueuedMetric),
     Flush(oneshot::Sender<()>),
     Close(oneshot::Sender<()>),
 }
@@ -43,20 +45,60 @@ pub(crate) fn spawn_worker(config: TellConfig) -> MTx<crossfire::mpsc::Array<Wor
     tx
 }
 
+/// Mutable state owned by the worker loop, avoiding long parameter lists.
+struct WorkerState {
+    transport: TcpTransport,
+    disk_buffer: Option<DiskBuffer>,
+    event_queue: Vec<QueuedEvent>,
+    log_queue: Vec<QueuedLog>,
+    metric_queue: Vec<QueuedMetric>,
+    data_buf: Vec<u8>,
+    batch_buf: Vec<u8>,
+    api_key: [u8; 16],
+    service: Option<String>,
+    source: Option<String>,
+    batch_size: usize,
+    max_retries: u32,
+    on_error: Option<Arc<dyn Fn(TellError) + Send + Sync>>,
+}
+
+impl WorkerState {
+    fn new(config: &TellConfig) -> Self {
+        let disk_buffer = config.buffer_path.as_ref().and_then(|path| {
+            match DiskBuffer::open(path, config.buffer_max_bytes) {
+                Ok(buf) => Some(buf),
+                Err(e) => {
+                    if let Some(ref cb) = config.on_error {
+                        cb(TellError::buffer(format!(
+                            "failed to open disk buffer: {e}"
+                        )));
+                    }
+                    None
+                }
+            }
+        });
+
+        Self {
+            transport: TcpTransport::new(config.endpoint.clone(), config.network_timeout),
+            disk_buffer,
+            event_queue: Vec::new(),
+            log_queue: Vec::new(),
+            metric_queue: Vec::new(),
+            data_buf: Vec::with_capacity(64 * 1024),
+            batch_buf: Vec::with_capacity(64 * 1024),
+            api_key: config.api_key_bytes,
+            service: config.service.clone(),
+            source: config.source.clone(),
+            batch_size: config.batch_size,
+            max_retries: config.max_retries,
+            on_error: config.on_error.clone(),
+        }
+    }
+}
+
 async fn worker_loop(config: TellConfig, rx: AsyncRx<crossfire::mpsc::Array<WorkerMessage>>) {
-    let mut transport = TcpTransport::new(config.endpoint.clone(), config.network_timeout);
-
-    let mut event_queue: Vec<QueuedEvent> = Vec::new();
-    let mut log_queue: Vec<QueuedLog> = Vec::new();
-    let mut data_buf: Vec<u8> = Vec::with_capacity(64 * 1024);
-    let mut batch_buf: Vec<u8> = Vec::with_capacity(64 * 1024);
-
     let flush_interval = config.flush_interval;
-    let batch_size = config.batch_size;
-    let max_retries = config.max_retries;
-    let api_key = config.api_key_bytes;
-    let service = config.service.clone();
-    let on_error = config.on_error.clone();
+    let mut state = WorkerState::new(&config);
 
     let mut interval = tokio::time::interval(flush_interval);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -68,56 +110,116 @@ async fn worker_loop(config: TellConfig, rx: AsyncRx<crossfire::mpsc::Array<Work
             msg = rx.recv() => {
                 match msg {
                     Ok(WorkerMessage::Event(event)) => {
-                        event_queue.push(event);
-                        if event_queue.len() >= batch_size {
-                            flush_events(&mut transport, &api_key, &service, &mut event_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
-                        }
+                        state.event_queue.push(event);
                     }
                     Ok(WorkerMessage::Log(log)) => {
-                        log_queue.push(log);
-                        if log_queue.len() >= batch_size {
-                            flush_logs(&mut transport, &api_key, &service, &mut log_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
-                        }
+                        state.log_queue.push(log);
+                    }
+                    Ok(WorkerMessage::Metric(metric)) => {
+                        state.metric_queue.push(metric);
                     }
                     Ok(WorkerMessage::Flush(ack)) => {
-                        // Drain any remaining messages from the channel first
-                        let extra_acks = drain_channel(&rx, &mut event_queue, &mut log_queue);
-                        flush_events(&mut transport, &api_key, &service, &mut event_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
-                        flush_logs(&mut transport, &api_key, &service, &mut log_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
+                        drain_channel(
+                            &rx, &mut state.event_queue, &mut state.log_queue, &mut state.metric_queue,
+                        ).into_iter().for_each(|a| { let _ = a.send(()); });
+                        flush_all(&mut state).await;
                         let _ = ack.send(());
-                        for a in extra_acks {
-                            let _ = a.send(());
-                        }
+                        continue;
                     }
                     Ok(WorkerMessage::Close(ack)) => {
-                        let extra_acks = drain_channel(&rx, &mut event_queue, &mut log_queue);
-                        flush_events(&mut transport, &api_key, &service, &mut event_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
-                        flush_logs(&mut transport, &api_key, &service, &mut log_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
-                        transport.close().await;
+                        drain_channel(
+                            &rx, &mut state.event_queue, &mut state.log_queue, &mut state.metric_queue,
+                        ).into_iter().for_each(|a| { let _ = a.send(()); });
+                        shutdown(&mut state).await;
                         let _ = ack.send(());
-                        for a in extra_acks {
-                            let _ = a.send(());
-                        }
                         return;
                     }
                     Err(_) => {
-                        // Channel closed — flush remaining and exit
-                        flush_events(&mut transport, &api_key, &service, &mut event_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
-                        flush_logs(&mut transport, &api_key, &service, &mut log_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
-                        transport.close().await;
+                        shutdown(&mut state).await;
                         return;
                     }
                 }
+
+                // Bulk drain: grab all available messages without blocking.
+                // Low-throughput: try_recv returns nothing, zero cost.
+                // High-throughput: amortises select!/recv overhead across
+                // thousands of messages instead of one at a time.
+                // Stop if we hit a Flush/Close — those need flush-then-ack.
+                while let Ok(msg) = rx.try_recv() {
+                    match msg {
+                        WorkerMessage::Event(e) => state.event_queue.push(e),
+                        WorkerMessage::Log(l) => state.log_queue.push(l),
+                        WorkerMessage::Metric(m) => state.metric_queue.push(m),
+                        WorkerMessage::Flush(ack) => {
+                            flush_all(&mut state).await;
+                            let _ = ack.send(());
+                            break;
+                        }
+                        WorkerMessage::Close(ack) => {
+                            shutdown(&mut state).await;
+                            let _ = ack.send(());
+                            return;
+                        }
+                    }
+                }
+
+                // Flush any queues that reached batch_size.
+                if state.event_queue.len() >= state.batch_size {
+                    flush_events(&mut state).await;
+                }
+                if state.log_queue.len() >= state.batch_size {
+                    flush_logs(&mut state).await;
+                }
+                if state.metric_queue.len() >= state.batch_size {
+                    flush_metrics(&mut state).await;
+                }
             }
             _ = interval.tick() => {
-                if !event_queue.is_empty() {
-                    flush_events(&mut transport, &api_key, &service, &mut event_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
-                }
-                if !log_queue.is_empty() {
-                    flush_logs(&mut transport, &api_key, &service, &mut log_queue, max_retries, &on_error, &mut data_buf, &mut batch_buf).await;
-                }
+                drain_disk_buffer(&mut state).await;
+                flush_all_nonempty(&mut state).await;
             }
         }
+    }
+}
+
+/// Graceful shutdown: try to flush everything over TCP within a deadline.
+/// If the deadline expires (e.g. network is down), save remaining queues to WAL.
+async fn shutdown(state: &mut WorkerState) {
+    let deadline = std::time::Duration::from_secs(5);
+
+    match tokio::time::timeout(deadline, flush_all(state)).await {
+        Ok(()) => {}
+        Err(_) => {
+            // Deadline expired — TCP is likely down. Save whatever is left to WAL.
+            if let Some(ref cb) = state.on_error {
+                cb(TellError::network(
+                    "shutdown flush timed out — saving pending data to disk buffer",
+                ));
+            }
+            save_queues_to_wal(state);
+        }
+    }
+    state.transport.close().await;
+}
+
+/// Flush all three queues unconditionally.
+async fn flush_all(state: &mut WorkerState) {
+    drain_disk_buffer(state).await;
+    flush_events(state).await;
+    flush_logs(state).await;
+    flush_metrics(state).await;
+}
+
+/// Flush only non-empty queues (used on tick to avoid unnecessary work).
+async fn flush_all_nonempty(state: &mut WorkerState) {
+    if !state.event_queue.is_empty() {
+        flush_events(state).await;
+    }
+    if !state.log_queue.is_empty() {
+        flush_logs(state).await;
+    }
+    if !state.metric_queue.is_empty() {
+        flush_metrics(state).await;
     }
 }
 
@@ -127,12 +229,14 @@ fn drain_channel(
     rx: &AsyncRx<crossfire::mpsc::Array<WorkerMessage>>,
     events: &mut Vec<QueuedEvent>,
     logs: &mut Vec<QueuedLog>,
+    metrics: &mut Vec<QueuedMetric>,
 ) -> Vec<oneshot::Sender<()>> {
     let mut acks = Vec::new();
     while let Ok(msg) = rx.try_recv() {
         match msg {
             WorkerMessage::Event(e) => events.push(e),
             WorkerMessage::Log(l) => logs.push(l),
+            WorkerMessage::Metric(m) => metrics.push(m),
             WorkerMessage::Flush(ack) | WorkerMessage::Close(ack) => {
                 acks.push(ack);
             }
@@ -141,29 +245,58 @@ fn drain_channel(
     acks
 }
 
-async fn flush_events(
-    transport: &mut TcpTransport,
-    api_key: &[u8; 16],
-    service: &Option<String>,
-    queue: &mut Vec<QueuedEvent>,
-    max_retries: u32,
-    on_error: &Option<std::sync::Arc<dyn Fn(TellError) + Send + Sync>>,
-    data_buf: &mut Vec<u8>,
-    batch_buf: &mut Vec<u8>,
-) {
-    if queue.is_empty() {
+/// Try to drain all pending frames from the disk buffer, sending each over TCP.
+///
+/// Stops on the first send failure (the frames remain on disk for the next tick).
+async fn drain_disk_buffer(state: &mut WorkerState) {
+    let buf = match state.disk_buffer.as_mut() {
+        Some(b) if !b.is_empty() => b,
+        _ => return,
+    };
+
+    loop {
+        let frame = match buf.drain_next() {
+            Ok(Some(frame)) => frame,
+            Ok(None) => return,
+            Err(e) => {
+                if let Some(ref cb) = state.on_error {
+                    cb(TellError::buffer(format!("disk buffer read error: {e}")));
+                }
+                return;
+            }
+        };
+
+        if let Err(send_err) = state.transport.send_frame(&frame).await {
+            // Send failed — put the frame back and stop draining.
+            // We re-append because the cursor already advanced past it.
+            if let Err(write_err) = buf.append(&frame)
+                && let Some(ref cb) = state.on_error
+            {
+                cb(TellError::buffer(format!(
+                    "failed to re-buffer frame: {write_err}"
+                )));
+            }
+            if let Some(ref cb) = state.on_error {
+                cb(send_err);
+            }
+            return;
+        }
+    }
+}
+
+async fn flush_events(state: &mut WorkerState) {
+    if state.event_queue.is_empty() {
         return;
     }
 
-    let events: Vec<QueuedEvent> = std::mem::take(queue);
+    let events: Vec<QueuedEvent> = std::mem::take(&mut state.event_queue);
 
-    // Build params borrowing from the queued events
     let params: Vec<EventParams<'_>> = events
         .iter()
         .map(|e| EventParams {
             event_type: e.event_type,
             timestamp: e.timestamp,
-            service: service.as_deref(),
+            service: state.service.as_deref(),
             device_id: Some(&e.device_id),
             session_id: Some(&e.session_id),
             event_name: e.event_name.as_deref(),
@@ -171,41 +304,31 @@ async fn flush_events(
         })
         .collect();
 
-    // Reusable buffers: data_buf for EventData, batch_buf for final Batch
-    data_buf.clear();
-    let range = encode_event_data_into(data_buf, &params);
+    state.data_buf.clear();
+    let range = encode_event_data_into(&mut state.data_buf, &params);
 
-    batch_buf.clear();
-    encode_batch_into(batch_buf, &BatchParams {
-        api_key,
-        schema_type: SchemaType::Event,
-        version: 100,
-        batch_id: next_batch_id(),
-        data: &data_buf[range],
-    });
+    state.batch_buf.clear();
+    encode_batch_into(
+        &mut state.batch_buf,
+        &BatchParams {
+            api_key: &state.api_key,
+            schema_type: SchemaType::Event,
+            version: 100,
+            batch_id: next_batch_id(),
+            data: &state.data_buf[range],
+        },
+    );
 
-    send_or_spawn_retry(transport, batch_buf, max_retries, on_error).await;
+    send_with_fallback(state).await;
 }
 
-async fn flush_logs(
-    transport: &mut TcpTransport,
-    api_key: &[u8; 16],
-    service: &Option<String>,
-    queue: &mut Vec<QueuedLog>,
-    max_retries: u32,
-    on_error: &Option<std::sync::Arc<dyn Fn(TellError) + Send + Sync>>,
-    data_buf: &mut Vec<u8>,
-    batch_buf: &mut Vec<u8>,
-) {
-    if queue.is_empty() {
+async fn flush_logs(state: &mut WorkerState) {
+    if state.log_queue.is_empty() {
         return;
     }
 
-    let logs: Vec<QueuedLog> = std::mem::take(queue);
+    let logs: Vec<QueuedLog> = std::mem::take(&mut state.log_queue);
 
-    // Build params borrowing from the queued logs
-    // service  → config-level app name (same as events)
-    // component → per-log module label, mapped to wire `source` field
     let params: Vec<LogEntryParams<'_>> = logs
         .iter()
         .map(|l| LogEntryParams {
@@ -214,100 +337,250 @@ async fn flush_logs(
             level: l.level,
             timestamp: l.timestamp,
             source: l.component.as_deref(),
-            service: service.as_deref(),
+            service: state.service.as_deref(),
             payload: l.payload.as_deref(),
         })
         .collect();
 
-    // Reusable buffers: data_buf for LogData, batch_buf for final Batch
-    data_buf.clear();
-    let range = encode_log_data_into(data_buf, &params);
+    state.data_buf.clear();
+    let range = encode_log_data_into(&mut state.data_buf, &params);
 
-    batch_buf.clear();
-    encode_batch_into(batch_buf, &BatchParams {
-        api_key,
-        schema_type: SchemaType::Log,
-        version: 100,
-        batch_id: next_batch_id(),
-        data: &data_buf[range],
-    });
+    state.batch_buf.clear();
+    encode_batch_into(
+        &mut state.batch_buf,
+        &BatchParams {
+            api_key: &state.api_key,
+            schema_type: SchemaType::Log,
+            version: 100,
+            batch_id: next_batch_id(),
+            data: &state.data_buf[range],
+        },
+    );
 
-    send_or_spawn_retry(transport, batch_buf, max_retries, on_error).await;
+    send_with_fallback(state).await;
 }
 
-/// Try sending once inline (fast path). On failure, spawn a retry task
-/// so the worker select loop is never blocked by backoff.
-async fn send_or_spawn_retry(
-    transport: &mut TcpTransport,
-    batch: &[u8],
-    max_retries: u32,
-    on_error: &Option<std::sync::Arc<dyn Fn(TellError) + Send + Sync>>,
-) {
-    match transport.send_frame(batch).await {
-        Ok(()) => {}
-        Err(first_err) => {
-            if max_retries > 0 {
-                let endpoint = transport.endpoint().to_string();
-                let timeout = transport.connect_timeout();
-                let on_error = on_error.clone();
-                let owned = batch.to_vec(); // only allocate on retry path
-                tokio::spawn(async move {
-                    retry_send(endpoint, timeout, owned, max_retries, on_error).await;
-                });
-            } else if let Some(cb) = on_error {
-                cb(first_err);
-            }
-        }
+async fn flush_metrics(state: &mut WorkerState) {
+    if state.metric_queue.is_empty() {
+        return;
     }
+
+    let metrics: Vec<QueuedMetric> = std::mem::take(&mut state.metric_queue);
+
+    let label_vecs: Vec<Vec<LabelParam<'_>>> = metrics
+        .iter()
+        .map(|m| {
+            m.labels
+                .iter()
+                .map(|(k, v)| LabelParam { key: k, value: v })
+                .collect()
+        })
+        .collect();
+
+    let params: Vec<MetricEntryParams<'_>> = metrics
+        .iter()
+        .zip(label_vecs.iter())
+        .map(|(m, labels)| MetricEntryParams {
+            metric_type: m.metric_type,
+            timestamp: m.timestamp,
+            name: &m.name,
+            value: m.value,
+            source: state.source.as_deref(),
+            service: state.service.as_deref(),
+            labels,
+            temporality: m.temporality,
+            histogram: m.histogram.as_ref(),
+            session_id: None,
+        })
+        .collect();
+
+    state.data_buf.clear();
+    let range = encode_metric_data_into(&mut state.data_buf, &params);
+
+    state.batch_buf.clear();
+    encode_batch_into(
+        &mut state.batch_buf,
+        &BatchParams {
+            api_key: &state.api_key,
+            schema_type: SchemaType::Metric,
+            version: 100,
+            batch_id: next_batch_id(),
+            data: &state.data_buf[range],
+        },
+    );
+
+    send_with_fallback(state).await;
 }
 
-/// Retry sending a batch on a fresh TCP connection with exponential backoff.
-/// Runs as a spawned task so the main worker loop is never blocked.
-async fn retry_send(
-    endpoint: String,
-    connect_timeout: Duration,
-    data: Vec<u8>,
-    max_retries: u32,
-    on_error: Option<std::sync::Arc<dyn Fn(TellError) + Send + Sync>>,
-) {
-    let mut transport = TcpTransport::new(endpoint, connect_timeout);
+/// Try sending the batch in `state.batch_buf` over TCP.
+///
+/// Retries up to `max_retries` times with exponential backoff (100ms, 200ms, 400ms, ...).
+/// The transport auto-reconnects on each attempt (`ensure_connected()` redials after failure).
+///
+/// After all retries are exhausted: if a disk buffer is configured, append to the WAL.
+/// Otherwise, invoke the error callback and the data is lost.
+async fn send_with_fallback(state: &mut WorkerState) {
     let mut last_err = None;
 
-    for attempt in 1..=max_retries {
-        let base = 1000.0 * 1.5_f64.powi(attempt as i32 - 1);
-        let jitter = base * 0.2 * rand_f64();
-        let delay = (base + jitter).min(30_000.0);
-        tokio::time::sleep(Duration::from_millis(delay as u64)).await;
-
-        match transport.send_frame(&data).await {
+    for attempt in 0..=state.max_retries {
+        match state.transport.send_frame(&state.batch_buf).await {
             Ok(()) => return,
             Err(e) => {
                 last_err = Some(e);
+                if attempt < state.max_retries {
+                    let delay_ms = 100u64 << attempt.min(10);
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                }
             }
         }
     }
 
-    if let (Some(err), Some(cb)) = (last_err, on_error) {
-        cb(err);
+    // All retries exhausted — fall back to disk buffer or drop.
+    let send_err = last_err.expect("loop ran at least once");
+    if let Some(ref mut buf) = state.disk_buffer {
+        match buf.append(&state.batch_buf) {
+            Ok(evicted) if evicted > 0 => {
+                if let Some(ref cb) = state.on_error {
+                    cb(TellError::buffer(format!(
+                        "disk buffer full — evicted {evicted} bytes of oldest data to make room"
+                    )));
+                }
+            }
+            Err(e) => {
+                if let Some(ref cb) = state.on_error {
+                    cb(TellError::buffer(format!("failed to buffer batch: {e}")));
+                }
+            }
+            _ => {}
+        }
+    } else if let Some(ref cb) = state.on_error {
+        cb(send_err);
     }
 }
 
-/// Simple pseudo-random float in [0, 1) for jitter.
-/// Not cryptographic — just for backoff jitter.
-fn rand_f64() -> f64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    use std::time::SystemTime;
+/// Emergency save: encode remaining in-memory queues directly to WAL.
+/// Called when the shutdown TCP flush times out. Synchronous — no network I/O.
+fn save_queues_to_wal(state: &mut WorkerState) {
+    let Some(ref mut buf) = state.disk_buffer else {
+        // No disk buffer — data is lost.
+        if let Some(ref cb) = state.on_error {
+            let total = state.event_queue.len() + state.log_queue.len() + state.metric_queue.len();
+            if total > 0 {
+                cb(TellError::buffer(format!(
+                    "no disk buffer configured — dropping {total} unsent items on shutdown"
+                )));
+            }
+        }
+        return;
+    };
 
-    let mut hasher = DefaultHasher::new();
-    SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
-        .hash(&mut hasher);
-    std::thread::current().id().hash(&mut hasher);
-    // Mix in the batch counter for extra entropy between calls
-    BATCH_COUNTER.load(Ordering::Relaxed).hash(&mut hasher);
-    let hash = hasher.finish();
-    (hash as f64) / (u64::MAX as f64)
+    // Save pending events
+    if !state.event_queue.is_empty() {
+        let events: Vec<QueuedEvent> = std::mem::take(&mut state.event_queue);
+        let params: Vec<EventParams<'_>> = events
+            .iter()
+            .map(|e| EventParams {
+                event_type: e.event_type,
+                timestamp: e.timestamp,
+                service: state.service.as_deref(),
+                device_id: Some(&e.device_id),
+                session_id: Some(&e.session_id),
+                event_name: e.event_name.as_deref(),
+                payload: e.payload.as_deref(),
+            })
+            .collect();
+
+        state.data_buf.clear();
+        let range = encode_event_data_into(&mut state.data_buf, &params);
+        state.batch_buf.clear();
+        encode_batch_into(
+            &mut state.batch_buf,
+            &BatchParams {
+                api_key: &state.api_key,
+                schema_type: SchemaType::Event,
+                version: 100,
+                batch_id: next_batch_id(),
+                data: &state.data_buf[range],
+            },
+        );
+        let _ = buf.append(&state.batch_buf);
+    }
+
+    // Save pending logs
+    if !state.log_queue.is_empty() {
+        let logs: Vec<QueuedLog> = std::mem::take(&mut state.log_queue);
+        let params: Vec<LogEntryParams<'_>> = logs
+            .iter()
+            .map(|l| LogEntryParams {
+                event_type: tell_encoding::LogEventType::Log,
+                session_id: Some(&l.session_id),
+                level: l.level,
+                timestamp: l.timestamp,
+                source: l.component.as_deref(),
+                service: state.service.as_deref(),
+                payload: l.payload.as_deref(),
+            })
+            .collect();
+
+        state.data_buf.clear();
+        let range = encode_log_data_into(&mut state.data_buf, &params);
+        state.batch_buf.clear();
+        encode_batch_into(
+            &mut state.batch_buf,
+            &BatchParams {
+                api_key: &state.api_key,
+                schema_type: SchemaType::Log,
+                version: 100,
+                batch_id: next_batch_id(),
+                data: &state.data_buf[range],
+            },
+        );
+        let _ = buf.append(&state.batch_buf);
+    }
+
+    // Save pending metrics
+    if !state.metric_queue.is_empty() {
+        let metrics: Vec<QueuedMetric> = std::mem::take(&mut state.metric_queue);
+        let label_vecs: Vec<Vec<LabelParam<'_>>> = metrics
+            .iter()
+            .map(|m| {
+                m.labels
+                    .iter()
+                    .map(|(k, v)| LabelParam { key: k, value: v })
+                    .collect()
+            })
+            .collect();
+
+        let params: Vec<MetricEntryParams<'_>> = metrics
+            .iter()
+            .zip(label_vecs.iter())
+            .map(|(m, labels)| MetricEntryParams {
+                metric_type: m.metric_type,
+                timestamp: m.timestamp,
+                name: &m.name,
+                value: m.value,
+                source: state.source.as_deref(),
+                service: state.service.as_deref(),
+                labels,
+                temporality: m.temporality,
+                histogram: m.histogram.as_ref(),
+                session_id: None,
+            })
+            .collect();
+
+        state.data_buf.clear();
+        let range = encode_metric_data_into(&mut state.data_buf, &params);
+        state.batch_buf.clear();
+        encode_batch_into(
+            &mut state.batch_buf,
+            &BatchParams {
+                api_key: &state.api_key,
+                schema_type: SchemaType::Metric,
+                version: 100,
+                batch_id: next_batch_id(),
+                data: &state.data_buf[range],
+            },
+        );
+        let _ = buf.append(&state.batch_buf);
+    }
 }

@@ -61,10 +61,7 @@ pub fn generate_payload(size: usize) -> Vec<u8> {
     // Pad with a single large string field to reach target size
     let remaining = size.saturating_sub(base.len() + 20); // account for key overhead
     let padding = "x".repeat(remaining);
-    obj.insert(
-        "data".to_string(),
-        serde_json::Value::String(padding),
-    );
+    obj.insert("data".to_string(), serde_json::Value::String(padding));
 
     serde_json::to_vec(&obj).unwrap()
 }

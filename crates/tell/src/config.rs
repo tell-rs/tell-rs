@@ -1,6 +1,8 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::buffer::DEFAULT_BUFFER_MAX_BYTES;
 use crate::error::TellError;
 use crate::validation::validate_and_decode_api_key;
 
@@ -17,6 +19,8 @@ pub struct TellConfig {
     pub(crate) api_key_bytes: [u8; 16],
     /// Service name stamped on every event and log.
     pub(crate) service: Option<String>,
+    /// Source hostname/instance stamped on every metric.
+    pub(crate) source: Option<String>,
     /// Collector host:port.
     pub(crate) endpoint: String,
     /// Max events per batch before flush.
@@ -31,6 +35,10 @@ pub struct TellConfig {
     pub(crate) network_timeout: Duration,
     /// Error callback.
     pub(crate) on_error: Option<Arc<dyn Fn(TellError) + Send + Sync>>,
+    /// Directory for the disk buffer (WAL). `None` disables disk buffering.
+    pub(crate) buffer_path: Option<PathBuf>,
+    /// Maximum bytes for the disk buffer. Default: 64 MiB when path is set.
+    pub(crate) buffer_max_bytes: u64,
 }
 
 impl std::fmt::Debug for TellConfig {
@@ -42,6 +50,8 @@ impl std::fmt::Debug for TellConfig {
             .field("max_retries", &self.max_retries)
             .field("close_timeout", &self.close_timeout)
             .field("network_timeout", &self.network_timeout)
+            .field("buffer_path", &self.buffer_path)
+            .field("buffer_max_bytes", &self.buffer_max_bytes)
             .finish()
     }
 }
@@ -50,6 +60,7 @@ impl std::fmt::Debug for TellConfig {
 pub struct TellConfigBuilder {
     api_key: String,
     service: Option<String>,
+    source: Option<String>,
     endpoint: Option<String>,
     batch_size: Option<usize>,
     flush_interval: Option<Duration>,
@@ -57,6 +68,8 @@ pub struct TellConfigBuilder {
     close_timeout: Option<Duration>,
     network_timeout: Option<Duration>,
     on_error: Option<Arc<dyn Fn(TellError) + Send + Sync>>,
+    buffer_path: Option<PathBuf>,
+    buffer_max_bytes: Option<u64>,
 }
 
 impl TellConfigBuilder {
@@ -65,6 +78,7 @@ impl TellConfigBuilder {
         Self {
             api_key: api_key.into(),
             service: None,
+            source: None,
             endpoint: None,
             batch_size: None,
             flush_interval: None,
@@ -72,12 +86,20 @@ impl TellConfigBuilder {
             close_timeout: None,
             network_timeout: None,
             on_error: None,
+            buffer_path: None,
+            buffer_max_bytes: None,
         }
     }
 
     /// Set the service name stamped on every event and log. No auto-detect for server SDKs.
     pub fn service(mut self, name: impl Into<String>) -> Self {
         self.service = Some(name.into());
+        self
+    }
+
+    /// Set the source hostname/instance stamped on every metric.
+    pub fn source(mut self, source: impl Into<String>) -> Self {
+        self.source = Some(source.into());
         self
     }
 
@@ -123,26 +145,48 @@ impl TellConfigBuilder {
         self
     }
 
+    /// Set the directory for the disk buffer (WAL).
+    ///
+    /// When set, failed TCP sends are persisted to disk and retried on subsequent
+    /// flush ticks. When `None` (the default), disk buffering is disabled.
+    pub fn buffer_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.buffer_path = Some(path.into());
+        self
+    }
+
+    /// Set the maximum bytes for the disk buffer. Default: 64 MiB when path is set.
+    ///
+    /// Oldest frames are evicted (FIFO) when the buffer exceeds this limit.
+    pub fn buffer_max_bytes(mut self, max_bytes: u64) -> Self {
+        self.buffer_max_bytes = Some(max_bytes);
+        self
+    }
+
     /// Build the config, validating the API key.
     pub fn build(self) -> Result<TellConfig, TellError> {
         let api_key_bytes = validate_and_decode_api_key(&self.api_key)?;
 
-        if let Some(ref s) = self.service {
-            if s.is_empty() {
-                return Err(TellError::validation("service", "must not be empty"));
-            }
+        if let Some(ref s) = self.service
+            && s.is_empty()
+        {
+            return Err(TellError::validation("service", "must not be empty"));
         }
 
         Ok(TellConfig {
             api_key_bytes,
             service: self.service,
-            endpoint: self.endpoint.unwrap_or_else(|| DEFAULT_ENDPOINT.to_string()),
+            source: self.source,
+            endpoint: self
+                .endpoint
+                .unwrap_or_else(|| DEFAULT_ENDPOINT.to_string()),
             batch_size: self.batch_size.unwrap_or(100),
             flush_interval: self.flush_interval.unwrap_or(Duration::from_secs(10)),
             max_retries: self.max_retries.unwrap_or(3),
             close_timeout: self.close_timeout.unwrap_or(Duration::from_secs(5)),
             network_timeout: self.network_timeout.unwrap_or(Duration::from_secs(30)),
             on_error: self.on_error,
+            buffer_path: self.buffer_path,
+            buffer_max_bytes: self.buffer_max_bytes.unwrap_or(DEFAULT_BUFFER_MAX_BYTES),
         })
     }
 }

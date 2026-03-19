@@ -1,5 +1,5 @@
 use tell_encoding::{
-    encode_batch, encode_event, encode_event_data, BatchParams, EventParams, EventType, SchemaType,
+    BatchParams, EventParams, EventType, SchemaType, encode_batch, encode_event, encode_event_data,
 };
 
 fn main() {
@@ -14,6 +14,7 @@ fn main() {
     let event_with = encode_event(&EventParams {
         event_type: EventType::Track,
         timestamp: 1706000000000,
+        service: None,
         device_id: Some(&device_id),
         session_id: Some(&session_id),
         event_name: Some("Page Viewed"),
@@ -25,6 +26,7 @@ fn main() {
     let event_without = encode_event(&EventParams {
         event_type: EventType::Track,
         timestamp: 1706000000000,
+        service: None,
         device_id: Some(&device_id),
         session_id: Some(&session_id),
         event_name: Some("Page Viewed"),
@@ -99,8 +101,5 @@ fn main() {
 
     println!();
     println!("JSON payload alone: {} bytes", payload_json.len());
-    println!(
-        "Payload: {}",
-        std::str::from_utf8(payload_json).unwrap()
-    );
+    println!("Payload: {}", std::str::from_utf8(payload_json).unwrap());
 }

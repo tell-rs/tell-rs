@@ -1,9 +1,9 @@
 use std::time::Duration;
 
-use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use serde::Serialize;
 use serde_json::json;
-use tell::{props, Tell, TellConfig};
+use tell::{Tell, TellConfig, props};
 use tokio::runtime::Runtime;
 
 /// 80-byte struct matching flashlog's benchmark payload.
@@ -213,7 +213,11 @@ fn bench_comparison_burst(c: &mut Criterion) {
     group.bench_function("tell/1000_logs", |b| {
         b.iter(|| {
             for _ in 0..1000 {
-                client.log_error("Connection refused", Some("api"), Some(json!({"port": 5432})));
+                client.log_error(
+                    "Connection refused",
+                    Some("api"),
+                    Some(json!({"port": 5432})),
+                );
             }
         });
     });

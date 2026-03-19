@@ -1,4 +1,4 @@
-use crate::{encode_batch, BatchParams, SchemaType, API_KEY_LENGTH};
+use crate::{API_KEY_LENGTH, BatchParams, SchemaType, encode_batch};
 
 #[test]
 fn encode_batch_produces_valid_flatbuffer() {
@@ -28,8 +28,7 @@ fn encode_batch_produces_valid_flatbuffer() {
     let vtable_start = table_start - soffset as usize;
 
     // Read vtable size
-    let vtable_size =
-        u16::from_le_bytes([bytes[vtable_start], bytes[vtable_start + 1]]) as usize;
+    let vtable_size = u16::from_le_bytes([bytes[vtable_start], bytes[vtable_start + 1]]) as usize;
     assert_eq!(vtable_size, 16); // 4 + 6*2
 
     // Read schema_type from table (at table_start + 24)
@@ -55,8 +54,8 @@ fn encode_batch_produces_valid_flatbuffer() {
 #[test]
 fn encode_batch_contains_api_key() {
     let api_key: [u8; 16] = [
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
-        0x0F, 0x10,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+        0x10,
     ];
     let data = b"payload";
 
@@ -69,9 +68,7 @@ fn encode_batch_contains_api_key() {
     });
 
     // The api_key bytes should appear in the output
-    let found = bytes
-        .windows(API_KEY_LENGTH)
-        .any(|w| w == api_key);
+    let found = bytes.windows(API_KEY_LENGTH).any(|w| w == api_key);
     assert!(found, "api_key not found in encoded batch");
 }
 

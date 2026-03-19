@@ -1,6 +1,6 @@
-use crate::helpers::*;
-use crate::UUID_LENGTH;
 use crate::LogEntryParams;
+use crate::UUID_LENGTH;
+use crate::helpers::*;
 
 /// Encode a single LogEntry FlatBuffer.
 ///
@@ -37,8 +37,14 @@ pub fn encode_log_entry(params: &LogEntryParams<'_>) -> Vec<u8> {
     let service_size = params.service.map(|s| 4 + s.len() + 1).unwrap_or(0);
     let payload_size = params.payload.map(|p| 4 + p.len()).unwrap_or(0);
 
-    let estimated = 4 + vtable_size as usize + table_size as usize
-        + session_id_size + source_size + service_size + payload_size + 16;
+    let estimated = 4
+        + vtable_size as usize
+        + table_size as usize
+        + session_id_size
+        + source_size
+        + service_size
+        + payload_size
+        + 16;
     let mut buf = Vec::with_capacity(estimated);
 
     // Root offset placeholder
@@ -50,13 +56,13 @@ pub fn encode_log_entry(params: &LogEntryParams<'_>) -> Vec<u8> {
     write_u16(&mut buf, table_size);
 
     // Field offsets
-    write_u16(&mut buf, 28);                                           // field 0: event_type at +28
-    write_u16(&mut buf, if has_session_id { 4 } else { 0 });          // field 1: session_id
-    write_u16(&mut buf, 29);                                           // field 2: level at +29
-    write_u16(&mut buf, 20);                                           // field 3: timestamp at +20
-    write_u16(&mut buf, if has_source { 8 } else { 0 });              // field 4: source
-    write_u16(&mut buf, if has_service { 12 } else { 0 });            // field 5: service
-    write_u16(&mut buf, if has_payload { 16 } else { 0 });            // field 6: payload
+    write_u16(&mut buf, 28); // field 0: event_type at +28
+    write_u16(&mut buf, if has_session_id { 4 } else { 0 }); // field 1: session_id
+    write_u16(&mut buf, 29); // field 2: level at +29
+    write_u16(&mut buf, 20); // field 3: timestamp at +20
+    write_u16(&mut buf, if has_source { 8 } else { 0 }); // field 4: source
+    write_u16(&mut buf, if has_service { 12 } else { 0 }); // field 5: service
+    write_u16(&mut buf, if has_payload { 16 } else { 0 }); // field 6: payload
 
     // Align vtable to 4 bytes (18 bytes -> pad 2)
     buf.extend_from_slice(&[0u8; 2]);
@@ -207,7 +213,10 @@ pub fn encode_log_data(encoded_logs: &[Vec<u8>]) -> Vec<u8> {
 /// Zero-copy: writes the header first with reserved offset slots, then encodes
 /// entries directly in their final position. No intermediate allocations or copies.
 /// The caller can reuse `buf` across flushes via `buf.clear()`.
-pub fn encode_log_data_into(buf: &mut Vec<u8>, logs: &[LogEntryParams<'_>]) -> std::ops::Range<usize> {
+pub fn encode_log_data_into(
+    buf: &mut Vec<u8>,
+    logs: &[LogEntryParams<'_>],
+) -> std::ops::Range<usize> {
     let data_start = buf.len();
     let count = logs.len();
 

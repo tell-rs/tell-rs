@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use serde_json::json;
 use tell::{Tell, TellConfig};
 use tell_bench::SCENARIOS;
@@ -62,7 +62,8 @@ fn bench_pipeline_flush(c: &mut Criterion) {
                         client.track("warmup", "Warmup", None::<serde_json::Value>);
                         client.flush().await.unwrap();
 
-                        let payload = json!({"data": "x".repeat(scenario.payload_size.saturating_sub(30))});
+                        let payload =
+                            json!({"data": "x".repeat(scenario.payload_size.saturating_sub(30))});
 
                         let start = Instant::now();
                         for _ in 0..iters {

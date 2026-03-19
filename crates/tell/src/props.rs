@@ -142,12 +142,12 @@ mod tests {
             .add("url", "/home")
             .add("count", 42u32)
             .add("active", true)
-            .add("rate", 3.14f64);
+            .add("rate", 2.78f64);
         let json: serde_json::Value = serde_json::from_slice(&p.finish()).unwrap();
         assert_eq!(json["url"], "/home");
         assert_eq!(json["count"], 42);
         assert_eq!(json["active"], true);
-        assert_eq!(json["rate"], 3.14);
+        assert_eq!(json["rate"], 2.78);
     }
 
     #[test]
@@ -204,5 +204,11 @@ mod tests {
     fn into_payload_option_none() {
         let opt: Option<serde_json::Value> = None;
         assert!(opt.into_payload().is_none());
+    }
+
+    #[test]
+    fn props_default() {
+        let p = Props::default();
+        assert_eq!(p.finish(), b"{}");
     }
 }

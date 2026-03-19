@@ -1,4 +1,7 @@
-use crate::{encode_log_entry, encode_log_data, encode_log_data_into, LogEntryParams, LogEventType, LogLevel, UUID_LENGTH};
+use crate::{
+    LogEntryParams, LogEventType, LogLevel, UUID_LENGTH, encode_log_data, encode_log_data_into,
+    encode_log_entry,
+};
 
 #[test]
 fn encode_log_entry_with_all_fields() {
@@ -52,7 +55,9 @@ fn encode_log_entry_with_all_fields() {
     assert!(found, "service not found");
 
     // payload
-    let found = bytes.windows(payload.len()).any(|w| w == payload.as_slice());
+    let found = bytes
+        .windows(payload.len())
+        .any(|w| w == payload.as_slice());
     assert!(found, "payload not found");
 }
 
@@ -128,7 +133,9 @@ fn encode_log_data_multiple() {
 fn encode_log_data_into_matches_encode_log_data() {
     let session_ids: Vec<[u8; UUID_LENGTH]> = (0..3).map(|i| [i as u8; UUID_LENGTH]).collect();
     let sources: Vec<String> = (0..3).map(|i| format!("host-{i}")).collect();
-    let payloads: Vec<Vec<u8>> = (0..3).map(|i| format!(r#"{{"n":{i}}}"#).into_bytes()).collect();
+    let payloads: Vec<Vec<u8>> = (0..3)
+        .map(|i| format!(r#"{{"n":{i}}}"#).into_bytes())
+        .collect();
 
     let params: Vec<LogEntryParams<'_>> = (0..3)
         .map(|i| LogEntryParams {
@@ -148,7 +155,8 @@ fn encode_log_data_into_matches_encode_log_data() {
     let into_bytes = &buf[range];
 
     // Valid FlatBuffer root
-    let root = u32::from_le_bytes([into_bytes[0], into_bytes[1], into_bytes[2], into_bytes[3]]) as usize;
+    let root =
+        u32::from_le_bytes([into_bytes[0], into_bytes[1], into_bytes[2], into_bytes[3]]) as usize;
     assert!(root < into_bytes.len());
 
     // All sources, payloads, and service present
@@ -161,7 +169,9 @@ fn encode_log_data_into_matches_encode_log_data() {
         );
         let payload = format!(r#"{{"n":{i}}}"#);
         assert!(
-            into_bytes.windows(payload.len()).any(|w| w == payload.as_bytes()),
+            into_bytes
+                .windows(payload.len())
+                .any(|w| w == payload.as_bytes()),
             "payload {} not found in encode_log_data_into output",
             i,
         );
@@ -198,7 +208,8 @@ fn encode_log_data_into_reuses_buffer() {
     assert_eq!(range2.start, range1.end);
 
     let into_bytes = &buf[range2.clone()];
-    let root = u32::from_le_bytes([into_bytes[0], into_bytes[1], into_bytes[2], into_bytes[3]]) as usize;
+    let root =
+        u32::from_le_bytes([into_bytes[0], into_bytes[1], into_bytes[2], into_bytes[3]]) as usize;
     assert!(root < into_bytes.len());
 }
 

@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use serde_json::json;
-use tell::{props, Props, Tell, TellConfig};
+use tell::{Props, Tell, TellConfig, props};
 use tokio::runtime::Runtime;
 
 fn make_client(rt: &Runtime) -> Tell {
@@ -90,8 +90,14 @@ fn bench_track_large_props_builder(c: &mut Criterion) {
                 "Page Viewed",
                 Props::new()
                     .add("url", "/dashboard/analytics/overview")
-                    .add("referrer", "https://www.google.com/search?q=analytics+platform")
-                    .add("user_agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+                    .add(
+                        "referrer",
+                        "https://www.google.com/search?q=analytics+platform",
+                    )
+                    .add(
+                        "user_agent",
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                    )
                     .add("screen_width", 1920)
                     .add("screen_height", 1080)
                     .add("viewport_width", 1440)
@@ -177,21 +183,17 @@ fn bench_track_burst(c: &mut Criterion) {
 
     for &count in &[100u64, 1000, 10000] {
         group.throughput(Throughput::Elements(count));
-        group.bench_with_input(
-            BenchmarkId::new("events", count),
-            &count,
-            |b, &count| {
-                b.iter(|| {
-                    for _ in 0..count {
-                        client.track(
-                            "user_bench_123",
-                            "Page Viewed",
-                            Some(json!({"url": "/home"})),
-                        );
-                    }
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("events", count), &count, |b, &count| {
+            b.iter(|| {
+                for _ in 0..count {
+                    client.track(
+                        "user_bench_123",
+                        "Page Viewed",
+                        Some(json!({"url": "/home"})),
+                    );
+                }
+            });
+        });
     }
 
     group.finish();
@@ -258,6 +260,84 @@ fn bench_revenue(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_gauge_no_labels(c: &mut Criterion) {
+    let mut group = c.benchmark_group("gauge");
+    group.throughput(Throughput::Elements(1));
+
+    let rt = Runtime::new().unwrap();
+    let client = make_client(&rt);
+
+    group.bench_function("no_labels", |b| {
+        b.iter(|| {
+            client.gauge("system.load.1", 0.75, &[]);
+        });
+    });
+
+    group.finish();
+}
+
+fn bench_gauge_with_labels(c: &mut Criterion) {
+    let mut group = c.benchmark_group("gauge");
+    group.throughput(Throughput::Elements(1));
+
+    let rt = Runtime::new().unwrap();
+    let client = make_client(&rt);
+
+    group.bench_function("1_label", |b| {
+        b.iter(|| {
+            client.gauge("system.cpu.user", 45.2, &[("core", "0")]);
+        });
+    });
+
+    group.bench_function("3_labels", |b| {
+        b.iter(|| {
+            client.gauge(
+                "http.request.duration",
+                0.042,
+                &[("method", "GET"), ("path", "/api/users"), ("status", "200")],
+            );
+        });
+    });
+
+    group.finish();
+}
+
+fn bench_counter(c: &mut Criterion) {
+    let mut group = c.benchmark_group("counter");
+    group.throughput(Throughput::Elements(1));
+
+    let rt = Runtime::new().unwrap();
+    let client = make_client(&rt);
+
+    group.bench_function("1_label", |b| {
+        b.iter(|| {
+            client.counter("system.net.bytes_recv", 98765.0, &[("interface", "eth0")]);
+        });
+    });
+
+    group.finish();
+}
+
+fn bench_gauge_burst(c: &mut Criterion) {
+    let mut group = c.benchmark_group("gauge_burst");
+
+    let rt = Runtime::new().unwrap();
+    let client = make_client(&rt);
+
+    for &count in &[100u64, 1000, 10000] {
+        group.throughput(Throughput::Elements(count));
+        group.bench_with_input(BenchmarkId::new("metrics", count), &count, |b, &count| {
+            b.iter(|| {
+                for _ in 0..count {
+                    client.gauge("system.cpu.user", 45.2, &[("core", "0")]);
+                }
+            });
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_track_no_props,
@@ -270,5 +350,9 @@ criterion_group!(
     bench_log,
     bench_identify,
     bench_revenue,
+    bench_gauge_no_labels,
+    bench_gauge_with_labels,
+    bench_counter,
+    bench_gauge_burst,
 );
 criterion_main!(benches);

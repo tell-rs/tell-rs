@@ -8,14 +8,14 @@ use tell::{Tell, TellConfig};
 #[tokio::main]
 async fn main() {
     let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
-        .endpoint("collect.tell.rs:50000")          // default: collect.tell.rs:50000
-        .service("my-api")                           // app-level service name for filtering
-        .batch_size(100)                             // default: 100 events per batch
-        .flush_interval(Duration::from_secs(10))     // default: 10s between flushes
-        .max_retries(3)                              // default: 3 retry attempts
-        .close_timeout(Duration::from_secs(5))       // default: 5s graceful shutdown
-        .network_timeout(Duration::from_secs(30))    // default: 30s TCP timeout
-        .on_error(|e| eprintln!("[Tell] {e}"))       // default: errors are silent
+        .endpoint("collect.tell.rs:50000") // default: collect.tell.rs:50000
+        .service("my-api") // app-level service name for filtering
+        .batch_size(100) // default: 100 events per batch
+        .flush_interval(Duration::from_secs(10)) // default: 10s between flushes
+        .max_retries(3) // default: 3 retry attempts
+        .close_timeout(Duration::from_secs(5)) // default: 5s graceful shutdown
+        .network_timeout(Duration::from_secs(30)) // default: 30s TCP timeout
+        .on_error(|e| eprintln!("[Tell] {e}")) // default: errors are silent
         .build()
         .unwrap();
 

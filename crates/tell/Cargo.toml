@@ -20,6 +20,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 quanta = { workspace = true }
 crossfire = { workspace = true }
+parking_lot = "0.12"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util", "io-util"] }

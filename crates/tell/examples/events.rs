@@ -2,7 +2,7 @@
 //!
 //!   cargo run -p tell --example events
 
-use tell::{props, Tell, TellConfig};
+use tell::{Tell, TellConfig, props};
 
 #[tokio::main]
 async fn main() {
@@ -17,31 +17,52 @@ async fn main() {
     .unwrap();
 
     // Track events
-    client.track("user_123", "Page Viewed", props! {
-        "url" => "/home",
-        "referrer" => "google"
-    });
+    client.track(
+        "user_123",
+        "Page Viewed",
+        props! {
+            "url" => "/home",
+            "referrer" => "google"
+        },
+    );
 
     // Identify users
-    client.identify("user_123", props! {
-        "name" => "Jane",
-        "plan" => "pro"
-    });
+    client.identify(
+        "user_123",
+        props! {
+            "name" => "Jane",
+            "plan" => "pro"
+        },
+    );
 
     // Revenue
-    client.revenue("user_123", 49.99, "USD", "order_456", props! {
-        "product" => "annual_plan"
-    });
+    client.revenue(
+        "user_123",
+        49.99,
+        "USD",
+        "order_456",
+        props! {
+            "product" => "annual_plan"
+        },
+    );
 
     // Structured logging
-    client.log_error("DB connection failed", Some("api"), props! {
-        "host" => "db.internal",
-        "retries" => 3
-    });
+    client.log_error(
+        "DB connection failed",
+        Some("api"),
+        props! {
+            "host" => "db.internal",
+            "retries" => 3
+        },
+    );
 
-    client.log_info("User signed in", Some("auth"), props! {
-        "method" => "oauth"
-    });
+    client.log_info(
+        "User signed in",
+        Some("auth"),
+        props! {
+            "method" => "oauth"
+        },
+    );
 
     client.close().await.ok();
 }
