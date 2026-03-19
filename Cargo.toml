@@ -12,7 +12,7 @@ homepage = "https://tell.rs"
 readme = "README.md"
 
 [workspace.dependencies]
-tell-encoding = { version = "0.3.0", path = "crates/tell-encoding" }
+tell-encoding = { version = "0.4.0", path = "crates/tell-encoding" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
