@@ -444,11 +444,28 @@ impl Tell {
         component: Option<&str>,
         data: impl IntoPayload,
     ) -> bool {
+        self.try_log_with_service(level, message, component, None, data)
+    }
+
+    /// Send a log entry with a per-entry service override.
+    ///
+    /// Same as [`try_log`](Self::try_log) but allows overriding the global
+    /// service name for this specific entry. Useful when a single collector
+    /// (e.g. witness) forwards logs from multiple services.
+    pub fn try_log_with_service(
+        &self,
+        level: LogLevel,
+        message: &str,
+        component: Option<&str>,
+        service: Option<&str>,
+        data: impl IntoPayload,
+    ) -> bool {
         if let Err(e) = validate_log_message(message) {
             self.report_error(e);
             return true; // validation error, not channel pressure
         }
 
+        let service = service.filter(|s| !s.is_empty());
         let data_bytes = data.into_payload();
         let payload = merge_json_payload(b"\"message\":", message, data_bytes.as_deref());
 
@@ -459,9 +476,22 @@ impl Tell {
                 timestamp: now_ms(),
                 session_id: self.read_session_id(),
                 component: component.map(|s| s.to_string()),
+                service: service.map(|s| s.to_string()),
                 payload: Some(payload),
             }))
             .is_ok()
+    }
+
+    /// Fire-and-forget variant of [`try_log_with_service`](Self::try_log_with_service).
+    pub fn log_with_service(
+        &self,
+        level: LogLevel,
+        message: &str,
+        component: Option<&str>,
+        service: Option<&str>,
+        data: impl IntoPayload,
+    ) {
+        let _ = self.try_log_with_service(level, message, component, service, data);
     }
 
     /// Log at **Emergency** level (RFC 5424 severity 0). System is unusable.

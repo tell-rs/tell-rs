@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.1
+
+New:
+- logging: per-entry service override for forwarding logs from multiple services through one collector
+
+Fix:
+- logging: source field falls back to config hostname when component is None
+- build: CI workflow, clippy, deny, and formatting configs
+
 ## v0.4.0
 
 New:

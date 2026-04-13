@@ -336,8 +336,8 @@ async fn flush_logs(state: &mut WorkerState) {
             session_id: Some(&l.session_id),
             level: l.level,
             timestamp: l.timestamp,
-            source: l.component.as_deref(),
-            service: state.service.as_deref(),
+            source: l.component.as_deref().or(state.source.as_deref()),
+            service: l.service.as_deref().or(state.service.as_deref()),
             payload: l.payload.as_deref(),
         })
         .collect();
@@ -516,8 +516,8 @@ fn save_queues_to_wal(state: &mut WorkerState) {
                 session_id: Some(&l.session_id),
                 level: l.level,
                 timestamp: l.timestamp,
-                source: l.component.as_deref(),
-                service: state.service.as_deref(),
+                source: l.component.as_deref().or(state.source.as_deref()),
+                service: l.service.as_deref().or(state.service.as_deref()),
                 payload: l.payload.as_deref(),
             })
             .collect();

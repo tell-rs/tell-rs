@@ -21,6 +21,8 @@ pub(crate) struct QueuedLog {
     pub timestamp: u64,
     pub session_id: [u8; 16],
     pub component: Option<String>,
+    /// Per-entry service override. Falls back to config-level service if None.
+    pub service: Option<String>,
     pub payload: Option<Vec<u8>>,
 }
 

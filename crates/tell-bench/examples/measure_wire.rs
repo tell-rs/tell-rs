@@ -35,7 +35,7 @@ fn main() {
     println!("Single event (no payload):   {} bytes", event_without.len());
 
     // EventData wrapping 1 event
-    let event_data_1 = encode_event_data(&[event_with.clone()]);
+    let event_data_1 = encode_event_data(std::slice::from_ref(&event_with));
     println!("EventData (1 event):         {} bytes", event_data_1.len());
 
     // Batch wrapping 1 event

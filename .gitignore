@@ -17,3 +17,8 @@ dist/
 compare/
 
 TODO*.md
+
+AGENTS.md
+AGENTS-CONTEXT.md
+CLAUDE.md
+.claude/
