@@ -298,7 +298,7 @@ async fn flush_events(state: &mut WorkerState) {
             timestamp: e.timestamp,
             service: state.service.as_deref(),
             device_id: Some(&e.device_id),
-            session_id: Some(&e.session_id),
+            session_id: e.session_id.as_ref(),
             event_name: e.event_name.as_deref(),
             payload: e.payload.as_deref(),
         })
@@ -333,7 +333,7 @@ async fn flush_logs(state: &mut WorkerState) {
         .iter()
         .map(|l| LogEntryParams {
             event_type: tell_encoding::LogEventType::Log,
-            session_id: Some(&l.session_id),
+            session_id: l.session_id.as_ref(),
             level: l.level,
             timestamp: l.timestamp,
             source: l.component.as_deref().or(state.source.as_deref()),
@@ -484,7 +484,7 @@ fn save_queues_to_wal(state: &mut WorkerState) {
                 timestamp: e.timestamp,
                 service: state.service.as_deref(),
                 device_id: Some(&e.device_id),
-                session_id: Some(&e.session_id),
+                session_id: e.session_id.as_ref(),
                 event_name: e.event_name.as_deref(),
                 payload: e.payload.as_deref(),
             })
@@ -513,7 +513,7 @@ fn save_queues_to_wal(state: &mut WorkerState) {
             .iter()
             .map(|l| LogEntryParams {
                 event_type: tell_encoding::LogEventType::Log,
-                session_id: Some(&l.session_id),
+                session_id: l.session_id.as_ref(),
                 level: l.level,
                 timestamp: l.timestamp,
                 source: l.component.as_deref().or(state.source.as_deref()),

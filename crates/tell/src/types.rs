@@ -4,22 +4,28 @@ pub use tell_encoding::{
 };
 
 /// Queued event ready to be encoded and sent.
+///
+/// `session_id` is `None` when the caller has not opted in to session stamping.
+/// See [`crate::TellConfigBuilder::enable_session`].
 #[derive(Debug)]
 pub(crate) struct QueuedEvent {
     pub event_type: EventType,
     pub timestamp: u64,
     pub device_id: [u8; 16],
-    pub session_id: [u8; 16],
+    pub session_id: Option<[u8; 16]>,
     pub event_name: Option<Box<str>>,
     pub payload: Option<Vec<u8>>,
 }
 
 /// Queued log entry ready to be encoded and sent.
+///
+/// `session_id` is `None` when the caller has not opted in to session stamping.
+/// See [`crate::TellConfigBuilder::enable_session`].
 #[derive(Debug)]
 pub(crate) struct QueuedLog {
     pub level: LogLevel,
     pub timestamp: u64,
-    pub session_id: [u8; 16],
+    pub session_id: Option<[u8; 16]>,
     pub component: Option<String>,
     /// Per-entry service override. Falls back to config-level service if None.
     pub service: Option<String>,

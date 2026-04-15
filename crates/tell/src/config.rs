@@ -39,6 +39,10 @@ pub struct TellConfig {
     pub(crate) buffer_path: Option<PathBuf>,
     /// Maximum bytes for the disk buffer. Default: 64 MiB when path is set.
     pub(crate) buffer_max_bytes: u64,
+    /// Whether to auto-generate and stamp a process-wide session id on
+    /// `track`, `revenue`, and log calls. Identity messages (`identify`,
+    /// `alias`, `group`) never stamp regardless of this flag.
+    pub(crate) enable_session: bool,
 }
 
 impl std::fmt::Debug for TellConfig {
@@ -70,6 +74,7 @@ pub struct TellConfigBuilder {
     on_error: Option<Arc<dyn Fn(TellError) + Send + Sync>>,
     buffer_path: Option<PathBuf>,
     buffer_max_bytes: Option<u64>,
+    enable_session: bool,
 }
 
 impl TellConfigBuilder {
@@ -88,6 +93,7 @@ impl TellConfigBuilder {
             on_error: None,
             buffer_path: None,
             buffer_max_bytes: None,
+            enable_session: false,
         }
     }
 
@@ -162,6 +168,21 @@ impl TellConfigBuilder {
         self
     }
 
+    /// Opt in to process-wide session stamping.
+    ///
+    /// When enabled, [`Tell::new`](crate::Tell::new) generates one UUID v4 and
+    /// stamps it on every `track`, `revenue`, and log call. Identity-control
+    /// messages (`identify`, `alias`, `group`) are never stamped — they describe
+    /// who the actor is, not what they did.
+    ///
+    /// Default: off. Without this opt-in, all outbound events and logs carry
+    /// `session_id = None`. Use the per-call `_with_session` variants on
+    /// [`Tell`](crate::Tell) when sessions belong to upstream actors instead.
+    pub fn enable_session(mut self) -> Self {
+        self.enable_session = true;
+        self
+    }
+
     /// Build the config, validating the API key.
     pub fn build(self) -> Result<TellConfig, TellError> {
         let api_key_bytes = validate_and_decode_api_key(&self.api_key)?;
@@ -187,6 +208,7 @@ impl TellConfigBuilder {
             on_error: self.on_error,
             buffer_path: self.buffer_path,
             buffer_max_bytes: self.buffer_max_bytes.unwrap_or(DEFAULT_BUFFER_MAX_BYTES),
+            enable_session: self.enable_session,
         })
     }
 }

@@ -48,7 +48,9 @@ pub struct Tell {
 
 struct Inner {
     device_id: [u8; 16],
-    session_id: RwLock<[u8; 16]>,
+    /// The process-wide auto session id, present only when
+    /// `TellConfigBuilder::enable_session()` was called.
+    session_id: RwLock<Option<[u8; 16]>>,
     super_properties: RwLock<Arc<serde_json::Map<String, Value>>>,
     on_error: Option<Arc<dyn Fn(TellError) + Send + Sync>>,
     tx: MTx<crossfire::mpsc::Array<WorkerMessage>>,
@@ -117,12 +119,17 @@ impl Tell {
     pub fn new(config: TellConfig) -> Result<Self> {
         let on_error = config.on_error.clone();
         let close_timeout = config.close_timeout;
+        let session_id = if config.enable_session {
+            Some(new_uuid_bytes())
+        } else {
+            None
+        };
         let tx = spawn_worker(config);
 
         Ok(Self {
             inner: Arc::new(Inner {
                 device_id: new_uuid_bytes(),
-                session_id: RwLock::new(new_uuid_bytes()),
+                session_id: RwLock::new(session_id),
                 super_properties: RwLock::new(Arc::new(serde_json::Map::new())),
                 on_error,
                 tx,
@@ -162,6 +169,31 @@ impl Tell {
     ///
     /// Never blocks, never panics. Invalid input is reported via `onError`.
     pub fn track(&self, user_id: &str, event_name: &str, properties: impl IntoPayload) {
+        self.track_inner(self.read_session_id(), user_id, event_name, properties);
+    }
+
+    /// Track a user action stamped with a caller-supplied session id.
+    ///
+    /// The provided `sid` is stamped verbatim, overriding any process-wide
+    /// default set by [`TellConfigBuilder::enable_session`](crate::TellConfigBuilder::enable_session).
+    /// The caller owns the id's provenance; the SDK treats it as opaque.
+    pub fn track_with_session(
+        &self,
+        sid: &[u8; 16],
+        user_id: &str,
+        event_name: &str,
+        properties: impl IntoPayload,
+    ) {
+        self.track_inner(Some(*sid), user_id, event_name, properties);
+    }
+
+    fn track_inner(
+        &self,
+        session_id: Option<[u8; 16]>,
+        user_id: &str,
+        event_name: &str,
+        properties: impl IntoPayload,
+    ) {
         if let Err(e) = validate_user_id(user_id) {
             self.report_error(e);
             return;
@@ -178,13 +210,16 @@ impl Tell {
             event_type: EventType::Track,
             timestamp: now_ms(),
             device_id: self.inner.device_id,
-            session_id: self.read_session_id(),
+            session_id,
             event_name: Some(event_name.into()),
             payload,
         }));
     }
 
     /// Identify a user with optional traits.
+    ///
+    /// Identity-control messages never carry a session id — they describe
+    /// who the actor is, not activity inside a session.
     pub fn identify(&self, user_id: &str, traits: impl IntoPayload) {
         if let Err(e) = validate_user_id(user_id) {
             self.report_error(e);
@@ -215,13 +250,16 @@ impl Tell {
             event_type: EventType::Identify,
             timestamp: now_ms(),
             device_id: self.inner.device_id,
-            session_id: self.read_session_id(),
+            session_id: None,
             event_name: None,
             payload: Some(buf),
         }));
     }
 
     /// Associate a user with a group.
+    ///
+    /// Identity-control messages never carry a session id — group membership
+    /// is metadata about the actor, not activity inside a session.
     pub fn group(&self, user_id: &str, group_id: &str, properties: impl IntoPayload) {
         if let Err(e) = validate_user_id(user_id) {
             self.report_error(e);
@@ -261,7 +299,7 @@ impl Tell {
                 event_type: EventType::Group,
                 timestamp: now_ms(),
                 device_id: self.inner.device_id,
-                session_id: self.read_session_id(),
+                session_id: None,
                 event_name: None,
                 payload: Some(buf),
             }));
@@ -283,7 +321,7 @@ impl Tell {
                 event_type: EventType::Group,
                 timestamp: now_ms(),
                 device_id: self.inner.device_id,
-                session_id: self.read_session_id(),
+                session_id: None,
                 event_name: None,
                 payload: serde_json::to_vec(&map).ok(),
             }));
@@ -293,6 +331,42 @@ impl Tell {
     /// Track a revenue event.
     pub fn revenue(
         &self,
+        user_id: &str,
+        amount: f64,
+        currency: &str,
+        order_id: &str,
+        properties: impl IntoPayload,
+    ) {
+        self.revenue_inner(
+            self.read_session_id(),
+            user_id,
+            amount,
+            currency,
+            order_id,
+            properties,
+        );
+    }
+
+    /// Track a revenue event stamped with a caller-supplied session id.
+    ///
+    /// The provided `sid` is stamped verbatim, overriding any process-wide
+    /// default set by [`TellConfigBuilder::enable_session`](crate::TellConfigBuilder::enable_session).
+    /// The caller owns the id's provenance; the SDK treats it as opaque.
+    pub fn revenue_with_session(
+        &self,
+        sid: &[u8; 16],
+        user_id: &str,
+        amount: f64,
+        currency: &str,
+        order_id: &str,
+        properties: impl IntoPayload,
+    ) {
+        self.revenue_inner(Some(*sid), user_id, amount, currency, order_id, properties);
+    }
+
+    fn revenue_inner(
+        &self,
+        session_id: Option<[u8; 16]>,
         user_id: &str,
         amount: f64,
         currency: &str,
@@ -353,7 +427,7 @@ impl Tell {
                 event_type: EventType::Track,
                 timestamp: now_ms(),
                 device_id: self.inner.device_id,
-                session_id: self.read_session_id(),
+                session_id,
                 event_name: Some("Order Completed".into()),
                 payload: Some(buf),
             }));
@@ -377,7 +451,7 @@ impl Tell {
                 event_type: EventType::Track,
                 timestamp: now_ms(),
                 device_id: self.inner.device_id,
-                session_id: self.read_session_id(),
+                session_id,
                 event_name: Some("Order Completed".into()),
                 payload: serde_json::to_vec(&map).ok(),
             }));
@@ -385,6 +459,9 @@ impl Tell {
     }
 
     /// Link two user identities.
+    ///
+    /// Identity-control messages never carry a session id — identity linkage
+    /// is metadata about the actor, not activity inside a session.
     pub fn alias(&self, previous_id: &str, user_id: &str) {
         if previous_id.is_empty() {
             self.report_error(TellError::validation("previousId", "is required"));
@@ -407,7 +484,7 @@ impl Tell {
             event_type: EventType::Alias,
             timestamp: now_ms(),
             device_id: self.inner.device_id,
-            session_id: self.read_session_id(),
+            session_id: None,
             event_name: None,
             payload: Some(buf),
         }));
@@ -460,6 +537,44 @@ impl Tell {
         service: Option<&str>,
         data: impl IntoPayload,
     ) -> bool {
+        self.try_log_inner(
+            self.read_session_id(),
+            level,
+            message,
+            component,
+            service,
+            data,
+        )
+    }
+
+    /// Send a log entry stamped with a caller-supplied session id.
+    ///
+    /// Takes the level as an argument — this is the single log-with-session
+    /// method, there are no per-level variants. The provided `sid` is stamped
+    /// verbatim, overriding any process-wide default. The caller owns the id's
+    /// provenance; the SDK treats it as opaque.
+    ///
+    /// Returns `false` if the channel is full.
+    pub fn log_with_session(
+        &self,
+        sid: &[u8; 16],
+        level: LogLevel,
+        message: &str,
+        component: Option<&str>,
+        data: impl IntoPayload,
+    ) -> bool {
+        self.try_log_inner(Some(*sid), level, message, component, None, data)
+    }
+
+    fn try_log_inner(
+        &self,
+        session_id: Option<[u8; 16]>,
+        level: LogLevel,
+        message: &str,
+        component: Option<&str>,
+        service: Option<&str>,
+        data: impl IntoPayload,
+    ) -> bool {
         if let Err(e) = validate_log_message(message) {
             self.report_error(e);
             return true; // validation error, not channel pressure
@@ -474,7 +589,7 @@ impl Tell {
             .try_send(WorkerMessage::Log(QueuedLog {
                 level,
                 timestamp: now_ms(),
-                session_id: self.read_session_id(),
+                session_id,
                 component: component.map(|s| s.to_string()),
                 service: service.map(|s| s.to_string()),
                 payload: Some(payload),
@@ -692,10 +807,25 @@ impl Tell {
 
     // --- Lifecycle ---
 
-    /// Rotate the session ID.
+    /// Rotate the process-wide session id.
+    ///
+    /// Only meaningful when the builder opted in via
+    /// [`TellConfigBuilder::enable_session`](crate::TellConfigBuilder::enable_session).
+    /// When session stamping is disabled, this is a no-op that reports a
+    /// validation error through the configured `on_error` callback. It never
+    /// panics and never retroactively enables session stamping.
     pub fn reset_session(&self) {
         let mut session = self.inner.session_id.write();
-        *session = new_uuid_bytes();
+        match *session {
+            Some(_) => *session = Some(new_uuid_bytes()),
+            None => {
+                drop(session);
+                self.report_error(TellError::validation(
+                    "session",
+                    "is disabled; call .enable_session() on the builder",
+                ));
+            }
+        }
     }
 
     /// Flush all queued events and logs, waiting for completion.
@@ -730,7 +860,14 @@ impl Tell {
 
     // --- Internal ---
 
-    fn read_session_id(&self) -> [u8; 16] {
+    fn read_session_id(&self) -> Option<[u8; 16]> {
+        *self.inner.session_id.read()
+    }
+
+    /// Expose the current auto-session id for testing only.
+    /// test helper
+    #[cfg(test)]
+    pub(crate) fn current_session_id(&self) -> Option<[u8; 16]> {
         *self.inner.session_id.read()
     }
 

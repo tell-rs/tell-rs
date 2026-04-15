@@ -232,3 +232,72 @@ fn log_event_type_values() {
     assert_eq!(LogEventType::Log.as_u8(), 1);
     assert_eq!(LogEventType::Enrich.as_u8(), 2);
 }
+
+// --- R7: session_id None vs Some in encoded log FlatBuffers ---
+
+/// Extract the vtable slot value for a given field index (0-based) from a
+/// standalone LogEntry FlatBuffer.
+fn log_vtable_slot(bytes: &[u8], field: usize) -> u16 {
+    let root_offset = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+    let soffset = i32::from_le_bytes([
+        bytes[root_offset],
+        bytes[root_offset + 1],
+        bytes[root_offset + 2],
+        bytes[root_offset + 3],
+    ]);
+    let vtable_start = (root_offset as i64 - soffset as i64) as usize;
+    let slot_offset = vtable_start + 4 + field * 2;
+    u16::from_le_bytes([bytes[slot_offset], bytes[slot_offset + 1]])
+}
+
+#[test]
+fn test_encode_log_session_id_none_absent() {
+    let bytes = encode_log_entry(&LogEntryParams {
+        event_type: LogEventType::Log,
+        session_id: None,
+        level: LogLevel::Info,
+        timestamp: 1000,
+        source: None,
+        service: None,
+        payload: None,
+    });
+
+    // Field 1 = session_id in log vtable. When absent, vtable slot must be 0.
+    let slot = log_vtable_slot(&bytes, 1);
+    assert_eq!(
+        slot, 0,
+        "session_id vtable slot must be 0 when session_id is None"
+    );
+
+    let sentinel = [0x55u8; UUID_LENGTH];
+    assert!(
+        !bytes.windows(UUID_LENGTH).any(|w| w == sentinel),
+        "sentinel bytes must not appear in log frame when session_id is None"
+    );
+}
+
+#[test]
+fn test_encode_log_session_id_some_present() {
+    let sentinel = [0x55u8; UUID_LENGTH];
+    let bytes = encode_log_entry(&LogEntryParams {
+        event_type: LogEventType::Log,
+        session_id: Some(&sentinel),
+        level: LogLevel::Info,
+        timestamp: 1000,
+        source: None,
+        service: None,
+        payload: None,
+    });
+
+    // Field 1 = session_id. When present, vtable slot must be non-zero.
+    let slot = log_vtable_slot(&bytes, 1);
+    assert_ne!(
+        slot, 0,
+        "session_id vtable slot must be non-zero when session_id is Some"
+    );
+
+    assert!(
+        bytes.windows(UUID_LENGTH).any(|w| w == sentinel),
+        "sentinel session_id bytes must appear in the encoded log entry"
+    );
+}

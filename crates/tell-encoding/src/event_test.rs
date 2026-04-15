@@ -320,3 +320,74 @@ fn encode_event_types() {
         assert_eq!(et.as_u8(), val);
     }
 }
+
+// --- R7: session_id None vs Some in encoded FlatBuffers ---
+
+/// Extract the vtable slot value for a given field index (0-based) from a
+/// standalone Event FlatBuffer. Returns the u16 stored at vtable[4 + field*2].
+fn event_vtable_slot(bytes: &[u8], field: usize) -> u16 {
+    let root_offset = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+    let soffset = i32::from_le_bytes([
+        bytes[root_offset],
+        bytes[root_offset + 1],
+        bytes[root_offset + 2],
+        bytes[root_offset + 3],
+    ]);
+    let vtable_start = (root_offset as i64 - soffset as i64) as usize;
+    let slot_offset = vtable_start + 4 + field * 2;
+    u16::from_le_bytes([bytes[slot_offset], bytes[slot_offset + 1]])
+}
+
+#[test]
+fn test_encode_event_session_id_none_absent() {
+    let bytes = encode_event(&EventParams {
+        event_type: EventType::Track,
+        timestamp: 1000,
+        service: None,
+        device_id: None,
+        session_id: None,
+        event_name: None,
+        payload: None,
+    });
+
+    // Field 4 = session_id. When absent, the vtable slot must be 0.
+    let slot = event_vtable_slot(&bytes, 4);
+    assert_eq!(
+        slot, 0,
+        "session_id vtable slot must be 0 when session_id is None"
+    );
+
+    // No 16-byte window of 0x55 should appear (sanity — absence of sentinel).
+    let sentinel = [0x55u8; UUID_LENGTH];
+    assert!(
+        !bytes.windows(UUID_LENGTH).any(|w| w == sentinel),
+        "sentinel bytes must not appear in frame when session_id is None"
+    );
+}
+
+#[test]
+fn test_encode_event_session_id_some_present() {
+    let sentinel = [0x55u8; UUID_LENGTH];
+    let bytes = encode_event(&EventParams {
+        event_type: EventType::Track,
+        timestamp: 1000,
+        service: None,
+        device_id: None,
+        session_id: Some(&sentinel),
+        event_name: None,
+        payload: None,
+    });
+
+    // Field 4 = session_id. When present, the vtable slot must be non-zero.
+    let slot = event_vtable_slot(&bytes, 4);
+    assert_ne!(
+        slot, 0,
+        "session_id vtable slot must be non-zero when session_id is Some"
+    );
+
+    // The sentinel bytes must appear verbatim in the encoded buffer.
+    assert!(
+        bytes.windows(UUID_LENGTH).any(|w| w == sentinel),
+        "sentinel session_id bytes must appear in the encoded event"
+    );
+}

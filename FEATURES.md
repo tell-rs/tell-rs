@@ -9,6 +9,13 @@
 - Alias — link two user identities.
 - Standard event names — 40+ predefined constants covering user lifecycle, billing, subscriptions, trials, shopping, engagement, and communication.
 
+## Sessions
+
+- Opt-in auto session — enable_session() on the builder generates one process-wide UUID v4 and stamps it on track, revenue, and log calls.
+- Per-call override — track_with_session, revenue_with_session, and log_with_session stamp a caller-supplied 16-byte id for upstream-owned sessions.
+- Identity exempt — identify, alias, and group never carry a session id, since they describe the actor, not activity.
+- Manual rotation — reset_session rotates the process-wide id when enabled, and reports a validation error via on_error when disabled.
+
 ## Logging
 
 - Structured logs — RFC 5424 severity levels (emergency through trace) with component tagging and arbitrary data.

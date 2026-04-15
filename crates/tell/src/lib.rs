@@ -37,6 +37,8 @@ mod client_test;
 #[cfg(test)]
 mod config_test;
 #[cfg(test)]
+mod session_test;
+#[cfg(test)]
 mod transport_test;
 #[cfg(test)]
 mod validation_test;

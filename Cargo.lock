@@ -1394,7 +1394,7 @@ dependencies = [
 
 [[package]]
 name = "tell"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "crossfire",
  "parking_lot",
@@ -1409,7 +1409,7 @@ dependencies = [
 
 [[package]]
 name = "tell-bench"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "criterion",
  "flashlog",
@@ -1424,7 +1424,7 @@ dependencies = [
 
 [[package]]
 name = "tell-encoding"
-version = "0.4.1"
+version = "0.5.0"
 
 [[package]]
 name = "tempfile"

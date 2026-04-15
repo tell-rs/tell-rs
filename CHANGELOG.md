@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.0
+
+  - session: opt-in tracking via enable_session
+  - session: track_with_session, revenue_with_session, log_with_session when session id is needed
+  - session: reset_session errors when tracking is disabled
+
 ## v0.4.1
 
 New:

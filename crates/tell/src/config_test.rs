@@ -107,3 +107,24 @@ fn builder_optional_setters() {
     );
     assert_eq!(config.buffer_max_bytes, 1024 * 1024);
 }
+
+#[test]
+fn test_default_config_enable_session_false() {
+    let config = TellConfig::builder(VALID_KEY).build().unwrap();
+    assert!(
+        !config.enable_session,
+        "default config must have enable_session = false"
+    );
+}
+
+#[test]
+fn test_enable_session_sets_flag_true() {
+    let config = TellConfig::builder(VALID_KEY)
+        .enable_session()
+        .build()
+        .unwrap();
+    assert!(
+        config.enable_session,
+        "enable_session() must set enable_session = true"
+    );
+}
