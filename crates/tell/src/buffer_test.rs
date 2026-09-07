@@ -110,11 +110,12 @@ fn compact_reclaims_space() {
 
     let wal_size_before = fs::metadata(dir.join("buffer.wal")).unwrap().len();
 
-    // Drain all — triggers compaction
+    // Drain all, then commit — triggers compaction
     for _ in 0..10 {
         buf.drain_next().unwrap().unwrap();
     }
     assert!(buf.is_empty());
+    buf.commit().unwrap();
 
     let wal_size_after = fs::metadata(dir.join("buffer.wal")).unwrap().len();
     assert!(
@@ -132,8 +133,9 @@ fn cursor_file_is_valid() {
 
     buf.append(b"first").unwrap();
     buf.append(b"second").unwrap();
-    // Drain one — cursor advances but compaction may or may not trigger
+    // Drain one and commit — cursor is persisted
     buf.drain_next().unwrap();
+    buf.commit().unwrap();
 
     // Cursor file should exist and be parseable
     let cursor_content = fs::read_to_string(dir.join("buffer.cursor")).unwrap();
@@ -306,5 +308,101 @@ fn symlink_wal_rejected() {
     let result = DiskBuffer::open(&dir, 4096);
     assert!(result.is_err());
 
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_commit_persists_cursor() {
+    let dir = tmp_dir("commit");
+    let mut buf = DiskBuffer::open(&dir, 4096).unwrap();
+    buf.append(b"a").unwrap();
+    buf.append(b"b").unwrap();
+    assert_eq!(buf.drain_next().unwrap().unwrap(), b"a");
+    assert!(
+        !dir.join("buffer.cursor").exists(),
+        "cursor not written before commit"
+    );
+    buf.commit().unwrap();
+    let cursor: u64 = fs::read_to_string(dir.join("buffer.cursor"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(cursor, 4 + 1);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_drop_persists_cursor() {
+    let dir = tmp_dir("drop-persist");
+    {
+        let mut buf = DiskBuffer::open(&dir, 4096).unwrap();
+        buf.append(b"a").unwrap();
+        buf.append(b"b").unwrap();
+        assert_eq!(buf.drain_next().unwrap().unwrap(), b"a");
+        // no commit — Drop must persist
+    }
+    let mut buf = DiskBuffer::open(&dir, 4096).unwrap();
+    assert_eq!(buf.drain_next().unwrap().unwrap(), b"b");
+    assert!(buf.drain_next().unwrap().is_none());
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_corrupt_header_rejected_without_allocating() {
+    let dir = tmp_dir("corrupt-header");
+    fs::create_dir_all(&dir).unwrap();
+    {
+        let mut buf = DiskBuffer::open(&dir, 4096).unwrap();
+        buf.append(b"good").unwrap();
+    }
+    // A header claiming 4 GiB followed by a few bytes.
+    {
+        use std::io::Write;
+        let mut f = fs::OpenOptions::new()
+            .append(true)
+            .open(dir.join("buffer.wal"))
+            .unwrap();
+        f.write_all(&u32::MAX.to_le_bytes()).unwrap();
+        f.write_all(&[1, 2, 3]).unwrap();
+    }
+
+    let mut buf = DiskBuffer::open(&dir, 4096).unwrap();
+    assert_eq!(buf.drain_next().unwrap().unwrap(), b"good");
+    let err = buf.drain_next().unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    assert!(buf.is_empty(), "corrupt tail must be skipped");
+    assert!(buf.drain_next().unwrap().is_none());
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_reader_survives_append_during_drain() {
+    let dir = tmp_dir("reader-append");
+    let mut buf = DiskBuffer::open(&dir, 4096).unwrap();
+    buf.append(b"one").unwrap();
+    assert_eq!(buf.drain_next().unwrap().unwrap(), b"one");
+    assert!(buf.drain_next().unwrap().is_none());
+    buf.append(b"two").unwrap();
+    assert_eq!(buf.drain_next().unwrap().unwrap(), b"two");
+    buf.commit().unwrap();
+    assert!(buf.is_empty());
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_drain_after_compaction_reads_correct_frames() {
+    let dir = tmp_dir("post-compact");
+    let mut buf = DiskBuffer::open(&dir, 4096).unwrap();
+    for i in 0..6u8 {
+        buf.append(&[i; 8]).unwrap();
+    }
+    for i in 0..4u8 {
+        assert_eq!(buf.drain_next().unwrap().unwrap(), [i; 8]);
+    }
+    buf.commit().unwrap(); // >50% consumed → compacts
+    assert_eq!(buf.drain_next().unwrap().unwrap(), [4u8; 8]);
+    assert_eq!(buf.drain_next().unwrap().unwrap(), [5u8; 8]);
+    assert!(buf.is_empty());
     let _ = fs::remove_dir_all(&dir);
 }

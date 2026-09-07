@@ -1,3 +1,9 @@
+//! FlatBuffer encoders for the Tell wire protocol.
+//!
+//! Hand-written, allocation-light encoders for events, logs, metrics, and the
+//! batch envelope. No I/O and no dependencies. Buffers can be reused across
+//! calls via the `*_into` variants.
+
 mod batch;
 mod event;
 mod helpers;

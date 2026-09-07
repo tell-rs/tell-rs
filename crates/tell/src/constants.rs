@@ -1,3 +1,5 @@
+//! Standard event name constants.
+
 /// Standard event names from the Tell specification.
 ///
 /// Use these constants with `client.track()` for consistent event naming.

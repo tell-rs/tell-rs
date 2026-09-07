@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.6.0
+
+New:
+- events: try_track returns a backpressure signal like try_log; track_static skips the event-name allocation for literals
+- client: dropped() counter and a one-shot TellError::QueueFull report per full episode replace silent drops
+- client: works without a Tokio runtime — the worker runs on a dedicated thread; flush_blocking and close_blocking for sync programs
+- config: queue_capacity builder option (default 10,000)
+- properties: () accepted as "no properties" instead of None::<serde_json::Value>
+- properties: keys are escaped — literal keys in props! are checked at compile time, dynamic keys scanned at runtime
+- tracing: new tell-tracing crate with a tracing-subscriber Layer that forwards tracing events into Tell logs
+
+Fix:
+- clock: timestamps re-anchor to SystemTime every second, so suspend, sleep, and NTP steps no longer skew events forever
+- worker: a close queued behind a flush now shuts the worker down instead of being acknowledged early; flush acks only after data is sent
+- client: flush and close no longer block a runtime thread; a full queue on a current-thread runtime cannot deadlock
+- worker: shutdown honours close_timeout instead of a hardcoded 5s
+- transport: network_timeout now bounds frame writes as well as connects (default lowered from 30s to 5s)
+- worker: with a disk buffer configured, a failed send goes straight to the WAL and retries from there, so retries never stall ingestion
+- worker: frames are capped at batch_size entries; queues keep their capacity between flushes
+- buffer: corrupt WAL headers are rejected before allocating; appends and cursor writes are fsynced; cursor committed once per drain pass
+- buffer: no /dev/null placeholder, so the WAL works on Windows
+- client: super properties are pre-serialized once and spliced in, removing a JSON re-parse per call
+- encoding: protocol version comes from DEFAULT_VERSION instead of a bare literal
+- docs: default endpoint docstring said collect.tell.app; it is collect.tell.rs
+
+Breaking:
+- TellError is #[non_exhaustive]; matches need a wildcard arm
+- network_timeout default is 5s (was 30s)
+- max_retries is ignored when buffer_path is set
+
 ## v0.5.0
 
   - session: opt-in tracking via enable_session

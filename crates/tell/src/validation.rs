@@ -1,3 +1,5 @@
+//! Input validation for API keys, ids, event names, and log messages.
+
 use crate::error::TellError;
 
 /// Validate a 32-character hex API key string and decode to 16 bytes.

@@ -1,3 +1,7 @@
+//! Queued entry types shared by the client and the worker, plus wire enums.
+
+use std::borrow::Cow;
+
 /// Re-export encoding types used in the public API.
 pub use tell_encoding::{
     EventType, HistogramParams, LogEventType, LogLevel, MetricType, SchemaType, Temporality,
@@ -13,7 +17,8 @@ pub(crate) struct QueuedEvent {
     pub timestamp: u64,
     pub device_id: [u8; 16],
     pub session_id: Option<[u8; 16]>,
-    pub event_name: Option<Box<str>>,
+    /// Borrowed for `'static` names (constants, `track_static`), owned otherwise.
+    pub event_name: Option<Cow<'static, str>>,
     pub payload: Option<Vec<u8>>,
 }
 
@@ -36,10 +41,7 @@ pub(crate) struct QueuedLog {
 ///
 /// When callers pass `&'static str` literals (the common case), both key and value
 /// are `Cow::Borrowed` — zero heap allocation. Dynamic strings use `Cow::Owned`.
-pub(crate) type MetricLabel = (
-    std::borrow::Cow<'static, str>,
-    std::borrow::Cow<'static, str>,
-);
+pub(crate) type MetricLabel = (Cow<'static, str>, Cow<'static, str>);
 
 /// Queued metric entry ready to be encoded and sent.
 ///
@@ -48,8 +50,9 @@ pub(crate) type MetricLabel = (
 #[derive(Debug)]
 pub(crate) struct QueuedMetric {
     pub metric_type: MetricType,
+    /// Nanoseconds since the Unix epoch (events and logs use milliseconds).
     pub timestamp: u64,
-    pub name: std::borrow::Cow<'static, str>,
+    pub name: Cow<'static, str>,
     pub value: f64,
     pub labels: Vec<MetricLabel>,
     pub temporality: Temporality,

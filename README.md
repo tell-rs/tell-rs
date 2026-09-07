@@ -8,18 +8,20 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
 </p>
 
-Rust SDK for Tell — product analytics and structured logging, [1,000× faster](#performance) than PostHog and Mixpanel.
+Rust SDK for Tell — product analytics, structured logging, and metrics, [1,000× faster](#performance) than PostHog and Mixpanel.
 
 - **80 ns per call.** Serializes, encodes, and enqueues. Your thread moves on.
 - **10M events/sec delivered.** Batched, encoded, sent over the wire.
 - **Fire & forget.** Synchronous API, async background worker. Zero I/O blocking.
 - **Thread-safe.** `Clone + Send + Sync`. Share across threads via `Arc`.
+- **Runtime-optional.** Uses your Tokio runtime if there is one, otherwise spawns its own worker thread.
 
 ## Installation
 
 ```bash
 cargo add tell
-cargo add tokio --features rt-multi-thread,macros
+cargo add tokio --features rt-multi-thread,macros   # optional: without it, Tell runs its own worker thread
+cargo add tell-tracing                               # optional: tracing-subscriber Layer
 ```
 
 ## Quick Start
@@ -46,7 +48,7 @@ async fn main() {
     });
 
     // Revenue
-    client.revenue("user_123", 49.99, "USD", "order_456", None::<serde_json::Value>);
+    client.revenue("user_123", 49.99, "USD", "order_456", ());
 
     // Structured logging
     client.log_error("DB connection failed", Some("api"), props! {
@@ -101,10 +103,14 @@ let config = TellConfig::development("feed1e11feed1e11feed1e11feed1e11").unwrap(
 let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
     .service("my-backend")                // stamped on every event and log
     .endpoint("collect.internal:50000")
+    .queue_capacity(50_000)               // default 10,000 messages in flight
+    .buffer_path("/var/lib/my-backend/tell") // WAL for failed sends (off by default)
     .on_error(|e| eprintln!("[Tell] {e}"))
     .build()
     .unwrap();
 ```
+
+Defaults: batch 100, flush every 10 s, 5 s connect and write timeout, 5 s close timeout, 3 retries. With `buffer_path` set, a failed send goes straight to the write-ahead log and is retried from disk on the next flush, so retries never stall ingestion.
 
 ## API
 
@@ -115,6 +121,8 @@ let client = Tell::new(config)?;
 
 // Events — user_id is always the first parameter
 client.track(user_id, event_name, properties);
+client.try_track(user_id, event_name, properties);   // false when the queue is full
+client.track_static(user_id, Events::PAGE_VIEWED, properties); // no name allocation
 client.identify(user_id, traits);
 client.group(user_id, group_id, properties);
 client.revenue(user_id, amount, currency, order_id, properties);
@@ -133,11 +141,15 @@ client.log_error(message, service, data);
 
 // Lifecycle
 client.reset_session();
+client.dropped();                 // messages dropped because the queue was full
 client.flush().await?;
 client.close().await?;
+client.close_blocking()?;         // outside a Tokio runtime
 ```
 
-Properties accept `props!`, `Props::new()`, `Option<impl Serialize>`, or `None::<serde_json::Value>`:
+When the queue fills, `on_error` receives one `TellError::QueueFull` per episode and `dropped()` keeps counting. Raise `queue_capacity` or shorten `flush_interval` if it grows.
+
+Properties accept `props!`, `Props::new()`, `Option<impl Serialize>`, or `()`:
 
 ```rust
 use tell::{props, Props};
@@ -159,13 +171,31 @@ client.track("user_123", "Request", p);
 client.track("user_123", "Click", Some(json!({"url": "/home"})));
 
 // No properties
-client.track("user_123", "Click", None::<serde_json::Value>);
+client.track("user_123", "Click", ());
 ```
+
+Keys are always emitted as valid JSON. Literal keys in `props!` are checked at compile time and copied without a scan; dynamic keys are scanned once and escaped only if they contain a quote, backslash, or control byte.
+
+## tracing integration
+
+Already on `tracing`? The `tell-tracing` crate ships a `Layer` that forwards events into Tell logs:
+
+```rust
+use tracing_subscriber::prelude::*;
+
+tracing_subscriber::registry()
+    .with(tell_tracing::TellLayer::new(client.clone()))
+    .init();
+
+tracing::info!(user = "u1", "signed in");
+```
+
+The direct `Tell` API is faster and stays the recommended path for hot loops; the layer is for adopting Tell in existing code without rewriting call sites.
 
 ## Requirements
 
 - **Rust**: 2024 edition
-- **Runtime**: Tokio 1.x
+- **Runtime**: Tokio 1.x if you have one. Without a runtime, `Tell::new` starts a dedicated worker thread; use `flush_blocking` and `close_blocking`.
 
 ## License
 

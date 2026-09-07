@@ -1,0 +1,22 @@
+[package]
+name = "tell-tracing"
+description = "tracing-subscriber Layer that forwards tracing events to the Tell SDK"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["tracing", "logging", "telemetry", "observability", "tell"]
+categories = ["development-tools::debugging", "network-programming"]
+
+[dependencies]
+tell = { version = "0.6.0", path = "../tell" }
+tracing = "0.1"
+tracing-core = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+serde_json = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["registry", "std", "fmt"] }

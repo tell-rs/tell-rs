@@ -1,3 +1,5 @@
+//! Client configuration: `TellConfig`, its builder, and presets.
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +14,9 @@ pub const DEFAULT_ENDPOINT: &str = "collect.tell.rs:50000";
 /// Default localhost endpoint for development.
 pub const DEV_ENDPOINT: &str = "localhost:50000";
 
+/// Default in-memory queue capacity (messages).
+pub const DEFAULT_QUEUE_CAPACITY: usize = 10_000;
+
 /// Configuration for the Tell SDK.
 #[derive(Clone)]
 pub struct TellConfig {
@@ -19,30 +24,33 @@ pub struct TellConfig {
     pub(crate) api_key_bytes: [u8; 16],
     /// Service name stamped on every event and log.
     pub(crate) service: Option<String>,
-    /// Source hostname/instance stamped on every metric.
+    /// Source hostname/instance stamped on every metric, and the fallback
+    /// log source when a log entry has no component.
     pub(crate) source: Option<String>,
     /// Collector host:port.
     pub(crate) endpoint: String,
-    /// Max events per batch before flush.
+    /// Max events per batch before flush. Also the maximum frame size in entries.
     pub(crate) batch_size: usize,
     /// Time between automatic flushes.
     pub(crate) flush_interval: Duration,
-    /// Retry attempts per failed batch.
+    /// Retry attempts per failed batch (ignored when a disk buffer is configured).
     pub(crate) max_retries: u32,
     /// Graceful shutdown deadline.
     pub(crate) close_timeout: Duration,
-    /// TCP/connection timeout.
+    /// TCP connect and per-frame write timeout.
     pub(crate) network_timeout: Duration,
     /// Error callback.
     pub(crate) on_error: Option<Arc<dyn Fn(TellError) + Send + Sync>>,
     /// Directory for the disk buffer (WAL). `None` disables disk buffering.
     pub(crate) buffer_path: Option<PathBuf>,
-    /// Maximum bytes for the disk buffer. Default: 64 MiB when path is set.
+    /// Maximum bytes for the disk buffer. Default: 3 GiB when path is set.
     pub(crate) buffer_max_bytes: u64,
     /// Whether to auto-generate and stamp a process-wide session id on
     /// `track`, `revenue`, and log calls. Identity messages (`identify`,
     /// `alias`, `group`) never stamp regardless of this flag.
     pub(crate) enable_session: bool,
+    /// In-memory queue capacity between callers and the worker.
+    pub(crate) queue_capacity: usize,
 }
 
 impl std::fmt::Debug for TellConfig {
@@ -56,11 +64,14 @@ impl std::fmt::Debug for TellConfig {
             .field("network_timeout", &self.network_timeout)
             .field("buffer_path", &self.buffer_path)
             .field("buffer_max_bytes", &self.buffer_max_bytes)
+            .field("enable_session", &self.enable_session)
+            .field("queue_capacity", &self.queue_capacity)
             .finish()
     }
 }
 
 /// Builder for constructing a `TellConfig`.
+#[must_use = "call .build() to produce a TellConfig"]
 pub struct TellConfigBuilder {
     api_key: String,
     service: Option<String>,
@@ -75,6 +86,7 @@ pub struct TellConfigBuilder {
     buffer_path: Option<PathBuf>,
     buffer_max_bytes: Option<u64>,
     enable_session: bool,
+    queue_capacity: Option<usize>,
 }
 
 impl TellConfigBuilder {
@@ -94,6 +106,7 @@ impl TellConfigBuilder {
             buffer_path: None,
             buffer_max_bytes: None,
             enable_session: false,
+            queue_capacity: None,
         }
     }
 
@@ -104,18 +117,23 @@ impl TellConfigBuilder {
     }
 
     /// Set the source hostname/instance stamped on every metric.
+    ///
+    /// Also used as the log `source` when a log entry has no component.
     pub fn source(mut self, source: impl Into<String>) -> Self {
         self.source = Some(source.into());
         self
     }
 
-    /// Set the collector endpoint (`host:port`). Default: `collect.tell.app:50000`.
+    /// Set the collector endpoint (`host:port`). Default: `collect.tell.rs:50000`.
     pub fn endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.endpoint = Some(endpoint.into());
         self
     }
 
-    /// Max events per batch before an automatic flush. Default: `100`.
+    /// Max entries per batch. Default: `100`.
+    ///
+    /// Reaching this many queued entries triggers a flush, and no frame ever
+    /// carries more than this many entries.
     pub fn batch_size(mut self, size: usize) -> Self {
         self.batch_size = Some(size);
         self
@@ -128,24 +146,31 @@ impl TellConfigBuilder {
     }
 
     /// Retry attempts per failed batch send. Default: `3`.
+    ///
+    /// Ignored when [`buffer_path`](Self::buffer_path) is set: a failed send
+    /// goes straight to the disk buffer and is retried from there on the next
+    /// flush tick, so retries never stall ingestion.
     pub fn max_retries(mut self, retries: u32) -> Self {
         self.max_retries = Some(retries);
         self
     }
 
-    /// Deadline for graceful shutdown via [`close`](crate::Tell::close). Default: `5s`.
+    /// Deadline for the worker's final flush during [`close`](crate::Tell::close). Default: `5s`.
+    ///
+    /// `close` may take up to twice this long in the worst case: once waiting
+    /// for a full queue to accept the close request, once for the flush.
     pub fn close_timeout(mut self, timeout: Duration) -> Self {
         self.close_timeout = Some(timeout);
         self
     }
 
-    /// TCP connection timeout. Default: `30s`.
+    /// TCP connect and per-frame write timeout. Default: `5s`.
     pub fn network_timeout(mut self, timeout: Duration) -> Self {
         self.network_timeout = Some(timeout);
         self
     }
 
-    /// Callback invoked on non-fatal errors (validation failures, send errors).
+    /// Callback invoked on non-fatal errors (validation failures, send errors, queue full).
     pub fn on_error(mut self, f: impl Fn(TellError) + Send + Sync + 'static) -> Self {
         self.on_error = Some(Arc::new(f));
         self
@@ -160,7 +185,7 @@ impl TellConfigBuilder {
         self
     }
 
-    /// Set the maximum bytes for the disk buffer. Default: 64 MiB when path is set.
+    /// Set the maximum bytes for the disk buffer. Default: 3 GiB when path is set.
     ///
     /// Oldest frames are evicted (FIFO) when the buffer exceeds this limit.
     pub fn buffer_max_bytes(mut self, max_bytes: u64) -> Self {
@@ -183,6 +208,15 @@ impl TellConfigBuilder {
         self
     }
 
+    /// In-memory queue capacity in messages. Default: `10_000`.
+    ///
+    /// When the queue is full, new messages are dropped and counted; see
+    /// [`Tell::dropped`](crate::Tell::dropped) and [`TellError::QueueFull`].
+    pub fn queue_capacity(mut self, capacity: usize) -> Self {
+        self.queue_capacity = Some(capacity);
+        self
+    }
+
     /// Build the config, validating the API key.
     pub fn build(self) -> Result<TellConfig, TellError> {
         let api_key_bytes = validate_and_decode_api_key(&self.api_key)?;
@@ -191,6 +225,14 @@ impl TellConfigBuilder {
             && s.is_empty()
         {
             return Err(TellError::validation("service", "must not be empty"));
+        }
+        if self.batch_size == Some(0) {
+            return Err(TellError::configuration("batch_size must be at least 1"));
+        }
+        if self.queue_capacity == Some(0) {
+            return Err(TellError::configuration(
+                "queue_capacity must be at least 1",
+            ));
         }
 
         Ok(TellConfig {
@@ -204,11 +246,12 @@ impl TellConfigBuilder {
             flush_interval: self.flush_interval.unwrap_or(Duration::from_secs(10)),
             max_retries: self.max_retries.unwrap_or(3),
             close_timeout: self.close_timeout.unwrap_or(Duration::from_secs(5)),
-            network_timeout: self.network_timeout.unwrap_or(Duration::from_secs(30)),
+            network_timeout: self.network_timeout.unwrap_or(Duration::from_secs(5)),
             on_error: self.on_error,
             buffer_path: self.buffer_path,
             buffer_max_bytes: self.buffer_max_bytes.unwrap_or(DEFAULT_BUFFER_MAX_BYTES),
             enable_session: self.enable_session,
+            queue_capacity: self.queue_capacity.unwrap_or(DEFAULT_QUEUE_CAPACITY),
         })
     }
 }

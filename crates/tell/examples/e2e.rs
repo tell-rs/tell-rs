@@ -6,7 +6,7 @@
 //!
 //! Override endpoint:
 //!
-//!   TELL_ENDPOINT=collect.tell.app:50000 cargo run -p tell --example e2e
+//!   TELL_ENDPOINT=collect.tell.rs:50000 cargo run -p tell --example e2e
 //!
 //! Then verify on the collector that all events arrived.
 
@@ -77,7 +77,7 @@ async fn main() {
     );
 
     send("track with no properties");
-    client.track(USER, "App Opened", None::<serde_json::Value>);
+    client.track(USER, "App Opened", ());
 
     // ── Identify ──────────────────────────────────────────────────────
     send("identify");
@@ -117,13 +117,7 @@ async fn main() {
     );
 
     send("revenue without properties");
-    client.revenue(
-        USER,
-        9.99,
-        "USD",
-        "order_e2e_002",
-        None::<serde_json::Value>,
-    );
+    client.revenue(USER, 9.99, "USD", "order_e2e_002", ());
 
     // ── Alias ─────────────────────────────────────────────────────────
     send("alias");
@@ -220,7 +214,7 @@ async fn main() {
     );
 
     send("log with no service/data");
-    client.log_info("Heartbeat", None, None::<serde_json::Value>);
+    client.log_info("Heartbeat", None, ());
 
     // ── Unregister ────────────────────────────────────────────────────
     send("unregister 'test' super property");

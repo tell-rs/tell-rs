@@ -3,6 +3,7 @@
 ## Events
 
 - Track — record user actions with arbitrary properties.
+- Backpressure signal — try_track returns false when the queue is full; track_static avoids the event-name allocation for literals.
 - Identify — associate a user with traits (flat payload, no nesting).
 - Group — associate a user with a group, with optional properties.
 - Revenue — track order completions with amount, currency, and order ID.
@@ -36,37 +37,52 @@
 
 - Props builder — chainable key-value builder that writes JSON directly into a byte buffer, skipping intermediate DOM allocation.
 - props! macro — concise syntax for inline property construction.
-- Flexible input — accepts Props, json!(), Option<impl Serialize>, or any Serialize type.
+- Flexible input — accepts Props, json!(), Option<impl Serialize>, any Serialize type, or () for no properties.
+- Safe keys — literal keys in props! are validated at compile time; dynamic keys are scanned once and escaped only when needed.
+- Pre-serialized super properties — register() builds a byte fragment once; every track/group/revenue splices it without re-parsing.
 
 ## Transport
 
 - TCP with FlatBuffers — binary-encoded batches sent over persistent TCP connections.
 - Auto-reconnect — transparent reconnection on connection failure.
 - Batching — configurable batch size and flush interval with automatic size-triggered flushes.
-- Retry with backoff — exponential backoff on send failure (100ms, 200ms, 400ms, ...).
-- Bulk drain — high-throughput path amortises channel overhead across thousands of messages.
+- Retry with backoff — exponential backoff on send failure (100ms, 200ms, 400ms, ...) when no disk buffer is configured.
+- Write timeout — network_timeout bounds every frame write as well as the connect, so a stalled peer cannot hang the worker.
+- Bounded frames — no frame carries more than batch_size entries; queues keep their capacity between flushes.
+- Bulk drain — high-throughput path amortises channel overhead across thousands of messages, bounded so timers never starve.
 
 ## Disk Buffer
 
-- Write-ahead log — failed TCP sends persist to disk and retry on subsequent flushes.
+- Write-ahead log — failed TCP sends persist to disk (fsynced) and retry on subsequent flushes; with a WAL configured, a failed send goes straight to disk instead of stalling on inline retries.
+- Corruption guard — frame headers are validated before allocation; a corrupt tail is skipped and reported.
+- At-least-once — cursor committed once per drain pass and on drop; a crash mid-pass re-sends a few frames rather than losing any.
 - Crash recovery — unconsumed frames survive restarts and are drained on startup.
 - Graceful shutdown — queued data saved to WAL when TCP flush times out.
 - Size-bounded — configurable max bytes with FIFO eviction of oldest frames.
 - Auto-compaction — reclaims disk space when consumed data exceeds half the file.
 - Symlink protection — refuses to open WAL paths that are symlinks.
+- Portable — no /dev/null placeholder; works on Windows.
 
 ## Configuration
 
 - Builder pattern — TellConfigBuilder with fluent API for all settings.
 - Presets — development (localhost, fast flush) and production (default endpoint, tuned defaults).
 - Service name — app-level service stamped on every event and log.
-- Error callback — on_error hook for non-fatal errors (validation, transport).
-- Tunable timeouts — separate network, close, and flush interval settings.
+- Error callback — on_error hook for non-fatal errors (validation, transport, queue full).
+- Tunable timeouts — separate network, close, and flush interval settings; close honours close_timeout end to end.
+- Queue capacity — queue_capacity sets the in-flight message limit (default 10,000).
 
 ## Architecture
 
 - Sync API, async worker — calls never block the caller; a background Tokio task handles I/O.
+- Runtime-optional — inside a Tokio runtime the worker is spawned on it; outside one, a dedicated tell-worker thread runs its own current-thread runtime. flush_blocking and close_blocking serve sync programs.
+- Non-blocking control — flush and close use an async sender, so a full queue on a current-thread runtime cannot deadlock.
 - Clone + Send + Sync — Arc-wrapped interior; cloning is cheap, all clones share one connection.
 - Lock-free hot path — super properties use parking_lot RwLock; metrics and logs use bounded channel with no locks.
-- Sub-microsecond timestamps — quanta rdtsc clock anchored to system time (~2ns per timestamp vs ~20ns for SystemTime).
-- Channel backpressure — 10,000-slot pre-allocated ring buffer; callers get immediate feedback when full.
+- Sub-microsecond timestamps — quanta clock anchored to system time (~2ns per timestamp vs ~20ns for SystemTime), re-anchored every second so suspend and NTP steps never skew events.
+- Channel backpressure — pre-allocated ring buffer; dropped() counts overflow and on_error receives one QueueFull per full episode.
+- Ordered shutdown — a close queued behind a flush stops the worker; flush acks only after data is sent.
+
+## Integrations
+
+- tell-tracing — tracing-subscriber Layer that maps tracing levels to Tell log levels, uses the target as component, and collects fields into Props. Additive; the direct API remains the fast path.

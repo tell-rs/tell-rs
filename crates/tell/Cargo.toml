@@ -1,6 +1,6 @@
 [package]
 name = "tell"
-description = "Tell analytics SDK for Rust — events and structured logging"
+description = "Tell analytics SDK for Rust — events, structured logging, and metrics"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

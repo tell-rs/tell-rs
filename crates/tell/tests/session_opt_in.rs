@@ -48,9 +48,8 @@ async fn test_concurrent_with_session_each_carries_own_sid() {
 
     // Spawn N tasks that share the Tell client.
     let mut handles = Vec::with_capacity(N);
-    for i in 0..N {
+    for &sid in &sids {
         let client_clone = client.clone();
-        let sid = sids[i];
         handles.push(tokio::spawn(async move {
             client_clone.track_with_session(
                 &sid,

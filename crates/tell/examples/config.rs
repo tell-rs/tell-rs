@@ -12,15 +12,18 @@ async fn main() {
         .service("my-api") // app-level service name for filtering
         .batch_size(100) // default: 100 events per batch
         .flush_interval(Duration::from_secs(10)) // default: 10s between flushes
-        .max_retries(3) // default: 3 retry attempts
+        .max_retries(3) // default: 3 retry attempts (ignored when buffer_path is set)
         .close_timeout(Duration::from_secs(5)) // default: 5s graceful shutdown
-        .network_timeout(Duration::from_secs(30)) // default: 30s TCP timeout
+        .network_timeout(Duration::from_secs(5)) // default: 5s connect + write timeout
+        .queue_capacity(10_000) // default: 10,000 messages in flight
+        // .buffer_path("/var/lib/my-api/tell") // default: off; WAL for failed sends
         .on_error(|e| eprintln!("[Tell] {e}")) // default: errors are silent
         .build()
         .unwrap();
 
     let client = Tell::new(config).unwrap();
 
-    client.track("user_1", "Test", None::<serde_json::Value>);
+    client.track("user_1", "Test", ());
+    println!("dropped: {}", client.dropped());
     client.close().await.ok();
 }
