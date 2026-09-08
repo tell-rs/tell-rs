@@ -1471,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "tell"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "crossfire",
  "parking_lot",
@@ -1486,7 +1486,7 @@ dependencies = [
 
 [[package]]
 name = "tell-bench"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "criterion",
  "flashlog",
@@ -1501,11 +1501,11 @@ dependencies = [
 
 [[package]]
 name = "tell-encoding"
-version = "0.6.0"
+version = "0.7.0"
 
 [[package]]
 name = "tell-tracing"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "serde_json",
  "tell",

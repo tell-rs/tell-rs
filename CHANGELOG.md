@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.7.0
+
+New:
+- metrics: registered instruments — client.metrics() returns a registry handing out Counter, Histogram and Gauge handles; call sites bump atomics and the background worker samples every instrument once per metrics_interval (default 15 s), so a thousand increments in a tick cost one message instead of a thousand
+- metrics: sampled points are appended straight to the worker's batch and bypass the queue, so a full queue can never drop a sample
+- metrics: a counter is delta (default) or cumulative per registration, never both; histograms ship count, sum, min, max and cumulative buckets over fixed bounds; label values are a closed set fixed at registration
+- metrics: tell.sdk.dropped gauge ships the dropped-message count with every sample, so loss is visible in Tell while it happens
+- config: metrics_interval builder option (default 15 s, must be non-zero)
+
 ## v0.6.0
 
 New:

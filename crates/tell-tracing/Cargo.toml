@@ -11,7 +11,7 @@ keywords = ["tracing", "logging", "telemetry", "observability", "tell"]
 categories = ["development-tools::debugging", "network-programming"]
 
 [dependencies]
-tell = { version = "0.6.0", path = "../tell" }
+tell = { version = "0.7.0", path = "../tell" }
 tracing = "0.1"
 tracing-core = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }

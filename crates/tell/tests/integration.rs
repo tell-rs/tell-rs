@@ -1241,3 +1241,78 @@ async fn disk_buffer_drained_on_reconnect() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn registered_instruments_are_sampled_and_delivered() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let received_clone = received.clone();
+
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        loop {
+            let frame = read_frame(&mut stream).await;
+            received_clone.lock().unwrap().push(frame);
+        }
+    });
+
+    let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
+        .endpoint(addr.to_string())
+        .source("test-host")
+        .service("test-svc")
+        .batch_size(100)
+        .flush_interval(Duration::from_millis(100))
+        .metrics_interval(Duration::from_millis(50))
+        .build()
+        .unwrap();
+
+    let client = Tell::new(config).unwrap();
+    let uploads = client
+        .metrics()
+        .counter("uploads_total")
+        .by("source", &["web", "api"])
+        .register();
+    let latency = client
+        .metrics()
+        .histogram("analysis_duration_ms", &[100.0, 1000.0])
+        .register();
+    client.metrics().gauge("workers_live", || 4.0);
+
+    for _ in 0..1000 {
+        uploads.add("web", 1);
+    }
+    latency.record(250.0);
+
+    // Two sample ticks plus a flush tick.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    client.flush().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    {
+        let frames = received.lock().unwrap();
+        assert!(!frames.is_empty(), "the sample tick produced no frame");
+        let all: Vec<u8> = frames.concat();
+        for name in [
+            "uploads_total",
+            "analysis_duration_ms",
+            "workers_live",
+            "tell.sdk.dropped",
+        ] {
+            assert!(
+                all.windows(name.len()).any(|w| w == name.as_bytes()),
+                "metric '{name}' not found in any frame",
+            );
+        }
+        assert!(
+            all.windows(b"test-host".len()).any(|w| w == b"test-host"),
+            "source not stamped on sampled metrics",
+        );
+    }
+    assert_eq!(uploads.total("web"), 1000);
+    assert_eq!(client.dropped(), 0);
+
+    client.close().await.unwrap();
+    server.abort();
+}

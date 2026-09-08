@@ -149,6 +149,52 @@ client.close_blocking()?;         // outside a Tokio runtime
 
 When the queue fills, `on_error` receives one `TellError::QueueFull` per episode and `dropped()` keeps counting. Raise `queue_capacity` or shorten `flush_interval` if it grows.
 
+## Metrics
+
+Two ways to send a metric. Use the direct call for a value you already hold; use a registered instrument for anything counted per request.
+
+```rust
+// Direct — one message on the queue per call. Right for a reading you took once.
+client.gauge("system.cpu.user", 45.2, &[("core", "0")]);
+client.counter("bytes_sent", 1024.0, &[("iface", "eth0")]);   // delta
+client.histogram("request_ms", HistogramParams { .. }, &[]);
+```
+
+A `counter()` call per upload puts one message per upload on the queue shared with events and logs. Register the counter instead: the call site bumps an atomic, and the background worker ships one point per series every `metrics_interval` (default 15 s). A thousand increments in a tick cost one message, and sampled points are appended to the worker's own batch, so the queue can never drop them.
+
+```rust
+let m = client.metrics();
+
+// Counter split by a closed label set. Delta by default: sum the points for a total.
+let uploads = m.counter("uploads_total").by("source", &["web", "api"]).register();
+uploads.add("web", 1);
+
+// Cumulative counter: the running total since start. Read the last point.
+let bytes = m.counter("bytes_total").cumulative().register();
+bytes.inc(4096);
+
+// Histogram: count, sum, min, max and cumulative buckets over fixed bounds.
+let latency = m.histogram("analysis_ms", &[100.0, 500.0, 2000.0]).by("format", &["elf", "pe"]).register();
+latency.observe("elf", 340.0);
+
+// Gauge: a reader the worker calls on every tick. Keep it quick.
+let pool = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(8));
+let p = pool.clone();
+m.gauge("workers_live", move || p.load(std::sync::atomic::Ordering::Relaxed) as f64);
+m.gauge_by("jobs_queued", "status", |out| {
+    out.push(("pending", 3.0));
+    out.push(("running", 1.0));
+});
+```
+
+Handles are `Arc`s, so clone them into your call sites. Label values are fixed at registration; a value outside the set is dropped, so cardinality cannot grow at runtime and the hot path never allocates.
+
+A counter ships either deltas or running totals, never both. A `sum` over a series that mixes the two counts every cumulative point again.
+
+Once anything is registered, every sample also carries `tell.sdk.dropped`, the same number `dropped()` returns, so message loss shows up in Tell while it is happening instead of at shutdown.
+
+Set the cadence with `.metrics_interval(Duration::from_secs(15))` on the config builder.
+
 Properties accept `props!`, `Props::new()`, `Option<impl Serialize>`, or `()`:
 
 ```rust

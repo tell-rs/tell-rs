@@ -3,25 +3,23 @@
 //! Runs on the caller's Tokio runtime when one exists, otherwise on a
 //! dedicated thread with its own current-thread runtime.
 
-use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use crossfire::{AsyncRx, MTx};
-use tell_encoding::{
-    BatchParams, DEFAULT_VERSION, EventParams, LabelParam, LogEntryParams, MetricEntryParams,
-    SchemaType, encode_batch_into, encode_event_data_into, encode_log_data_into,
-    encode_metric_data_into,
-};
 use tokio::sync::oneshot;
 
 use crate::buffer::DiskBuffer;
 use crate::clock;
 use crate::config::TellConfig;
 use crate::error::TellError;
+use crate::metrics::Metrics;
 use crate::transport::TcpTransport;
 use crate::types::{QueuedEvent, QueuedLog, QueuedMetric};
+
+mod encode;
+use encode::{encode_events, encode_logs, encode_metrics};
 
 /// Sender half handed to the client.
 pub(crate) type Tx = MTx<crossfire::mpsc::Array<WorkerMessage>>;
@@ -56,21 +54,25 @@ fn report(cb: &Option<ErrorCallback>, err: TellError) {
 ///
 /// Uses the current Tokio runtime when called from inside one. Otherwise
 /// spawns a `tell-worker` thread running a current-thread runtime.
-pub(crate) fn spawn_worker(config: TellConfig) -> Result<Tx, TellError> {
+pub(crate) fn spawn_worker(config: TellConfig, metrics: Arc<Metrics>) -> Result<Tx, TellError> {
     crossfire::detect_backoff_cfg();
     let (tx, rx) = crossfire::mpsc::bounded_blocking_async::<WorkerMessage>(config.queue_capacity);
 
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => {
-            handle.spawn(worker_loop(config, rx));
+            handle.spawn(worker_loop(config, rx, metrics));
         }
-        Err(_) => spawn_dedicated_thread(config, rx)?,
+        Err(_) => spawn_dedicated_thread(config, rx, metrics)?,
     }
 
     Ok(tx)
 }
 
-fn spawn_dedicated_thread(config: TellConfig, rx: Rx) -> Result<(), TellError> {
+fn spawn_dedicated_thread(
+    config: TellConfig,
+    rx: Rx,
+    metrics: Arc<Metrics>,
+) -> Result<(), TellError> {
     std::thread::Builder::new()
         .name("tell-worker".into())
         .spawn(move || {
@@ -78,7 +80,7 @@ fn spawn_dedicated_thread(config: TellConfig, rx: Rx) -> Result<(), TellError> {
                 .enable_all()
                 .build();
             match runtime {
-                Ok(rt) => rt.block_on(worker_loop(config, rx)),
+                Ok(rt) => rt.block_on(worker_loop(config, rx, metrics)),
                 Err(e) => report(&config.on_error, TellError::Io(e)),
             }
         })
@@ -229,10 +231,14 @@ fn backoff(attempt: u32) -> Duration {
     Duration::from_millis(100u64 << attempt.min(10))
 }
 
-async fn worker_loop(config: TellConfig, rx: Rx) {
+async fn worker_loop(config: TellConfig, rx: Rx, metrics: Arc<Metrics>) {
     let mut sender = Sender::new(&config);
     let mut queues = Queues::default();
     let drain_limit = config.queue_capacity;
+
+    let mut sample_tick = tokio::time::interval(config.metrics_interval);
+    sample_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    sample_tick.tick().await;
 
     let mut flush_tick = tokio::time::interval(config.flush_interval);
     flush_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -276,8 +282,22 @@ async fn worker_loop(config: TellConfig, rx: Rx) {
             _ = resync_tick.tick() => {
                 clock::resync();
             }
+            _ = sample_tick.tick() => {
+                sample_instruments(&metrics, &mut queues);
+                flush_full_queues(&mut sender, &mut queues).await;
+            }
         }
     }
+}
+
+/// Sample the registered instruments straight into the worker's metric
+/// queue, bypassing the channel so the points are never dropped by it.
+/// A no-op while nothing is registered.
+fn sample_instruments(metrics: &Metrics, queues: &mut Queues) {
+    if metrics.is_empty() {
+        return;
+    }
+    metrics.sample(clock::now_ms() * 1_000_000, &mut queues.metrics);
 }
 
 /// Graceful shutdown: flush everything within `close_timeout`, then ack.
@@ -403,95 +423,4 @@ async fn drain_disk_buffer(sender: &mut Sender) {
             TellError::buffer(format!("disk buffer commit error: {e}")),
         );
     }
-}
-
-/// Wrap `data_buf[range]` in a Batch envelope into `batch_buf`.
-fn finish_batch(sender: &mut Sender, schema_type: SchemaType, range: Range<usize>) {
-    sender.batch_buf.clear();
-    encode_batch_into(
-        &mut sender.batch_buf,
-        &BatchParams {
-            api_key: &sender.api_key,
-            schema_type,
-            version: DEFAULT_VERSION,
-            batch_id: next_batch_id(),
-            data: &sender.data_buf[range],
-        },
-    );
-}
-
-fn encode_events(sender: &mut Sender, chunk: &[QueuedEvent]) {
-    let service = sender.service.as_deref();
-    let params: Vec<EventParams<'_>> = chunk
-        .iter()
-        .map(|e| EventParams {
-            event_type: e.event_type,
-            timestamp: e.timestamp,
-            service,
-            device_id: Some(&e.device_id),
-            session_id: e.session_id.as_ref(),
-            event_name: e.event_name.as_deref(),
-            payload: e.payload.as_deref(),
-        })
-        .collect();
-
-    sender.data_buf.clear();
-    let range = encode_event_data_into(&mut sender.data_buf, &params);
-    finish_batch(sender, SchemaType::Event, range);
-}
-
-fn encode_logs(sender: &mut Sender, chunk: &[QueuedLog]) {
-    let service = sender.service.as_deref();
-    let source = sender.source.as_deref();
-    let params: Vec<LogEntryParams<'_>> = chunk
-        .iter()
-        .map(|l| LogEntryParams {
-            event_type: tell_encoding::LogEventType::Log,
-            session_id: l.session_id.as_ref(),
-            level: l.level,
-            timestamp: l.timestamp,
-            source: l.component.as_deref().or(source),
-            service: l.service.as_deref().or(service),
-            payload: l.payload.as_deref(),
-        })
-        .collect();
-
-    sender.data_buf.clear();
-    let range = encode_log_data_into(&mut sender.data_buf, &params);
-    finish_batch(sender, SchemaType::Log, range);
-}
-
-fn encode_metrics(sender: &mut Sender, chunk: &[QueuedMetric]) {
-    let service = sender.service.as_deref();
-    let source = sender.source.as_deref();
-    let label_vecs: Vec<Vec<LabelParam<'_>>> = chunk
-        .iter()
-        .map(|m| {
-            m.labels
-                .iter()
-                .map(|(k, v)| LabelParam { key: k, value: v })
-                .collect()
-        })
-        .collect();
-
-    let params: Vec<MetricEntryParams<'_>> = chunk
-        .iter()
-        .zip(label_vecs.iter())
-        .map(|(m, labels)| MetricEntryParams {
-            metric_type: m.metric_type,
-            timestamp: m.timestamp,
-            name: &m.name,
-            value: m.value,
-            source,
-            service,
-            labels,
-            temporality: m.temporality,
-            histogram: m.histogram.as_ref(),
-            session_id: None,
-        })
-        .collect();
-
-    sender.data_buf.clear();
-    let range = encode_metric_data_into(&mut sender.data_buf, &params);
-    finish_batch(sender, SchemaType::Metric, range);
 }

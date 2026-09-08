@@ -17,6 +17,9 @@ pub const DEV_ENDPOINT: &str = "localhost:50000";
 /// Default in-memory queue capacity (messages).
 pub const DEFAULT_QUEUE_CAPACITY: usize = 10_000;
 
+/// Default interval between samples of the registered instruments.
+pub const DEFAULT_METRICS_INTERVAL: Duration = Duration::from_secs(15);
+
 /// Configuration for the Tell SDK.
 #[derive(Clone)]
 pub struct TellConfig {
@@ -51,6 +54,9 @@ pub struct TellConfig {
     pub(crate) enable_session: bool,
     /// In-memory queue capacity between callers and the worker.
     pub(crate) queue_capacity: usize,
+    /// How often the worker samples the registered instruments
+    /// ([`Tell::metrics`](crate::Tell::metrics)).
+    pub(crate) metrics_interval: Duration,
 }
 
 impl std::fmt::Debug for TellConfig {
@@ -66,6 +72,7 @@ impl std::fmt::Debug for TellConfig {
             .field("buffer_max_bytes", &self.buffer_max_bytes)
             .field("enable_session", &self.enable_session)
             .field("queue_capacity", &self.queue_capacity)
+            .field("metrics_interval", &self.metrics_interval)
             .finish()
     }
 }
@@ -87,6 +94,7 @@ pub struct TellConfigBuilder {
     buffer_max_bytes: Option<u64>,
     enable_session: bool,
     queue_capacity: Option<usize>,
+    metrics_interval: Option<Duration>,
 }
 
 impl TellConfigBuilder {
@@ -107,6 +115,7 @@ impl TellConfigBuilder {
             buffer_max_bytes: None,
             enable_session: false,
             queue_capacity: None,
+            metrics_interval: None,
         }
     }
 
@@ -217,6 +226,14 @@ impl TellConfigBuilder {
         self
     }
 
+    /// How often the worker samples the registered instruments
+    /// ([`Tell::metrics`](crate::Tell::metrics)). Default: 15 s. Must be
+    /// non-zero; sampling only happens once an instrument is registered.
+    pub fn metrics_interval(mut self, interval: Duration) -> Self {
+        self.metrics_interval = Some(interval);
+        self
+    }
+
     /// Build the config, validating the API key.
     pub fn build(self) -> Result<TellConfig, TellError> {
         let api_key_bytes = validate_and_decode_api_key(&self.api_key)?;
@@ -232,6 +249,11 @@ impl TellConfigBuilder {
         if self.queue_capacity == Some(0) {
             return Err(TellError::configuration(
                 "queue_capacity must be at least 1",
+            ));
+        }
+        if self.metrics_interval == Some(Duration::ZERO) {
+            return Err(TellError::configuration(
+                "metrics_interval must be non-zero",
             ));
         }
 
@@ -252,6 +274,7 @@ impl TellConfigBuilder {
             buffer_max_bytes: self.buffer_max_bytes.unwrap_or(DEFAULT_BUFFER_MAX_BYTES),
             enable_session: self.enable_session,
             queue_capacity: self.queue_capacity.unwrap_or(DEFAULT_QUEUE_CAPACITY),
+            metrics_interval: self.metrics_interval.unwrap_or(DEFAULT_METRICS_INTERVAL),
         })
     }
 }

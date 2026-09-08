@@ -28,6 +28,7 @@ mod clock;
 mod config;
 mod constants;
 mod error;
+pub mod metrics;
 mod payload;
 mod props;
 mod transport;
@@ -60,10 +61,12 @@ mod worker_test;
 
 pub use client::Tell;
 pub use config::{
-    DEFAULT_ENDPOINT, DEFAULT_QUEUE_CAPACITY, DEV_ENDPOINT, TellConfig, TellConfigBuilder,
+    DEFAULT_ENDPOINT, DEFAULT_METRICS_INTERVAL, DEFAULT_QUEUE_CAPACITY, DEV_ENDPOINT, TellConfig,
+    TellConfigBuilder,
 };
 pub use constants::Events;
 pub use error::{Result, TellError};
+pub use metrics::{Counter, Gauge, Histogram, Metrics};
 #[doc(hidden)]
 pub use props::key_is_plain;
 pub use props::{IntoPayload, Props};

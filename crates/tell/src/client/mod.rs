@@ -7,7 +7,7 @@ mod logs;
 mod metrics;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crossfire::{MAsyncTx, SendTimeoutError};
@@ -17,6 +17,7 @@ use tokio::sync::oneshot;
 
 use crate::config::TellConfig;
 use crate::error::{Result, TellError};
+use crate::metrics::Metrics;
 use crate::payload::object_inner;
 use crate::props::IntoPayload;
 use crate::worker::{Tx, WorkerMessage, spawn_worker};
@@ -63,8 +64,9 @@ struct Inner {
     /// Async sender for control messages from async contexts.
     atx: MAsyncTx<crossfire::mpsc::Array<WorkerMessage>>,
     close_timeout: Duration,
-    /// Messages dropped because the queue was full or closed.
-    dropped: AtomicU64,
+    /// Registered instruments, sampled by the worker. Also holds the
+    /// dropped-message count so the worker can ship it as a gauge.
+    metrics: Arc<Metrics>,
     /// Set while the queue is full; cleared on the next successful send.
     queue_full: AtomicBool,
 }
@@ -114,7 +116,8 @@ impl Tell {
         let on_error = config.on_error.clone();
         let close_timeout = config.close_timeout;
         let session_id = config.enable_session.then(new_uuid_bytes);
-        let tx = spawn_worker(config)?;
+        let metrics = Arc::new(Metrics::new());
+        let tx = spawn_worker(config, Arc::clone(&metrics))?;
         let atx = MAsyncTx::from(tx.clone());
 
         Ok(Self {
@@ -126,7 +129,7 @@ impl Tell {
                 tx,
                 atx,
                 close_timeout,
-                dropped: AtomicU64::new(0),
+                metrics,
                 queue_full: AtomicBool::new(false),
             }),
         })
@@ -195,7 +198,14 @@ impl Tell {
     /// or lower the flush interval if this grows.
     #[must_use]
     pub fn dropped(&self) -> u64 {
-        self.inner.dropped.load(Ordering::Relaxed)
+        self.inner.metrics.dropped()
+    }
+
+    /// The instrument registry: counters, histograms and gauges the worker
+    /// samples every `metrics_interval`. See [`crate::metrics`].
+    #[must_use]
+    pub fn metrics(&self) -> &Metrics {
+        &self.inner.metrics
     }
 
     /// Flush all queued events, logs, and metrics, waiting for completion.
@@ -281,7 +291,7 @@ impl Tell {
                 true
             }
             Err(_) => {
-                let dropped = self.inner.dropped.fetch_add(1, Ordering::Relaxed) + 1;
+                let dropped = self.inner.metrics.record_drop();
                 // Load first: a swap on every dropped message is a needless RMW.
                 if !self.inner.queue_full.load(Ordering::Relaxed)
                     && !self.inner.queue_full.swap(true, Ordering::Relaxed)

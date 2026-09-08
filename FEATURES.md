@@ -32,6 +32,11 @@
 - Zero-allocation labels — static string labels avoid heap allocation entirely.
 - Dynamic label variants — gauge_dyn and counter_dyn for runtime-generated label values.
 - Source tagging — hostname or instance identifier stamped on every metric.
+- Registered instruments — client.metrics() hands out Counter, Histogram and Gauge handles; call sites bump atomics and the worker samples them every metrics_interval, one point per series per tick.
+- Sampled points bypass the queue — appended to the worker's own batch, so a full queue never loses a sample.
+- Delta or cumulative per counter — pick at registration; a series never mixes the two.
+- Closed label sets — label values fixed at registration; unknown values are dropped, so cardinality cannot grow at runtime.
+- tell.sdk.dropped gauge — the dropped-message count ships with every sample once an instrument is registered.
 
 ## Properties
 

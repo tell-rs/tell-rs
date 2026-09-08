@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::config::*;
+use crate::error::TellError;
 
 const VALID_KEY: &str = "feed1e11feed1e11feed1e11feed1e11";
 
@@ -127,4 +128,26 @@ fn test_enable_session_sets_flag_true() {
         config.enable_session,
         "enable_session() must set enable_session = true"
     );
+}
+
+#[test]
+fn test_metrics_interval_default_and_override() {
+    let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
+        .build()
+        .unwrap();
+    assert_eq!(config.metrics_interval, DEFAULT_METRICS_INTERVAL);
+    let config = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
+        .metrics_interval(Duration::from_secs(30))
+        .build()
+        .unwrap();
+    assert_eq!(config.metrics_interval, Duration::from_secs(30));
+}
+
+#[test]
+fn test_metrics_interval_zero_rejected() {
+    let err = TellConfig::builder("feed1e11feed1e11feed1e11feed1e11")
+        .metrics_interval(Duration::ZERO)
+        .build()
+        .unwrap_err();
+    assert!(matches!(err, TellError::Configuration(_)), "{err}");
 }
