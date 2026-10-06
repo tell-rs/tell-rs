@@ -2,7 +2,9 @@
 //!
 //! Install the layer once at startup and every `tracing` event — including those
 //! from libraries — becomes a Tell structured log. Event fields become log
-//! properties, the event target becomes the log component.
+//! properties. By default the event target becomes the log component, which
+//! replaces the log's `source` (the host/instance from
+//! [`TellConfig`](tell::TellConfig)) — see [`TellLayer::with_component_from_target`].
 //!
 //! ```no_run
 //! use tell::{Tell, TellConfig};
@@ -76,8 +78,9 @@ impl TellLayer {
     /// Create a layer that forwards events to `client`.
     ///
     /// The event target (usually the emitting module path) is used as the log
-    /// component. Call [`with_component_from_target`](Self::with_component_from_target)
-    /// to turn that off.
+    /// component, which replaces the log's host/instance `source`. Call
+    /// [`with_component_from_target`](Self::with_component_from_target) with
+    /// `false` to keep `source` as the host.
     #[must_use]
     pub fn new(client: Tell) -> Self {
         Self {
@@ -88,8 +91,12 @@ impl TellLayer {
 
     /// Set whether the event target is sent as the log component.
     ///
-    /// Defaults to `true`. When `false`, logs are sent with no component and the
-    /// service name from [`TellConfig`](tell::TellConfig) is the only label.
+    /// Defaults to `true` for compatibility. In Tell a log's `source` is the
+    /// host or instance that sent it; a component replaces it, so with the
+    /// default every module path becomes its own "source". `false` (recommended)
+    /// sends no component: `source` stays the configured host and the service
+    /// name labels the log. Record a module you need as an event field
+    /// (`tracing::info!(module = "auth", "…")`), which becomes a log property.
     #[must_use]
     pub fn with_component_from_target(mut self, enabled: bool) -> Self {
         self.component_from_target = enabled;

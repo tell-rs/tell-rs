@@ -31,6 +31,8 @@ pub(crate) struct QueuedLog {
     pub level: LogLevel,
     pub timestamp: u64,
     pub session_id: Option<[u8; 16]>,
+    /// Legacy per-entry override of the log `source` (host/instance); see
+    /// [`Tell::log`](crate::Tell::log).
     pub component: Option<String>,
     /// Per-entry service override. Falls back to config-level service if None.
     pub service: Option<String>,

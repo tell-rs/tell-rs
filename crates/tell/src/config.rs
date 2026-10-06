@@ -27,8 +27,8 @@ pub struct TellConfig {
     pub(crate) api_key_bytes: [u8; 16],
     /// Service name stamped on every event and log.
     pub(crate) service: Option<String>,
-    /// Source hostname/instance stamped on every metric, and the fallback
-    /// log source when a log entry has no component.
+    /// Source hostname/instance stamped on every metric and log. A log
+    /// entry's legacy `component` replaces it for that entry.
     pub(crate) source: Option<String>,
     /// Collector host:port.
     pub(crate) endpoint: String,
@@ -125,9 +125,12 @@ impl TellConfigBuilder {
         self
     }
 
-    /// Set the source hostname/instance stamped on every metric.
+    /// Set the source hostname/instance stamped on every metric and log.
     ///
-    /// Also used as the log `source` when a log entry has no component.
+    /// `source` identifies the host or instance that sent the data. A log's
+    /// `component` argument replaces it for that entry, for compatibility only;
+    /// pass `None` there and carry a module or target in a log property, so
+    /// `source` stays one value per host.
     pub fn source(mut self, source: impl Into<String>) -> Self {
         self.source = Some(source.into());
         self

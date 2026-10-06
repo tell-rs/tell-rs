@@ -56,7 +56,7 @@
 //!
 //! Once any instrument is registered, every sample also ships
 //! `tell.sdk.dropped`: the running count of messages the client dropped
-//! because its queue was full, the same number [`Tell::dropped`] returns.
+//! because its queue was full, the same number [`Tell::dropped`](crate::Tell::dropped) returns.
 //! Because sampled points bypass the queue, the report survives the very
 //! overflow it describes.
 

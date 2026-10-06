@@ -51,7 +51,8 @@ async fn main() {
     client.revenue("user_123", 49.99, "USD", "order_456", ());
 
     // Structured logging
-    client.log_error("DB connection failed", Some("api"), props! {
+    client.log_error("DB connection failed", None, props! {
+        "component" => "api",
         "host" => "db.internal"
     });
 
@@ -133,9 +134,11 @@ client.register(props!{"app_version" => "2.0"});
 client.unregister("app_version");
 
 // Logging
-client.log(level, message, service, data);
-client.log_info(message, service, data);
-client.log_error(message, service, data);
+// component: legacy override of the log source (host/instance); pass None
+// and put a module or target in data instead
+client.log(level, message, component, data);
+client.log_info(message, component, data);
+client.log_error(message, component, data);
 // + log_emergency, log_alert, log_critical, log_warning,
 //   log_notice, log_debug, log_trace
 

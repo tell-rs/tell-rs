@@ -11,9 +11,25 @@ use crate::worker::WorkerMessage;
 impl Tell {
     /// Send a structured log entry.
     ///
-    /// `component` is an optional label for the module or subsystem that produced
-    /// the log (e.g. `"auth"`, `"cache"`, `"db"`). The app-level `service` name
-    /// is taken from [`TellConfig`](crate::TellConfig) and stamped automatically.
+    /// The log's `source` is the host or instance that sent it: the
+    /// [`TellConfig`](crate::TellConfig) `source`, usually the host name. Tell
+    /// filters and breaks logs down by it as one value per host. The app-level
+    /// `service` name is taken from the config and stamped automatically.
+    ///
+    /// `component`, when `Some`, **replaces** that `source` on the wire for this
+    /// entry. That override exists only for compatibility with earlier
+    /// releases; a module or subsystem name (`"auth"`, `"cache"`, a tracing
+    /// target) in `source` splits one host into many sources. Pass `None` and
+    /// put the module in a property instead:
+    ///
+    /// ```no_run
+    /// # use tell::{props, LogLevel, Tell};
+    /// # fn run(client: &Tell) {
+    /// client.log(LogLevel::Error, "cache miss storm", None, props! {
+    ///     "component" => "cache"
+    /// });
+    /// # }
+    /// ```
     ///
     /// Fire-and-forget: silently drops the entry if the queue is full.
     /// Use [`try_log`](Self::try_log) when the caller needs backpressure.
